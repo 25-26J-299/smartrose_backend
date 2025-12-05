@@ -3,7 +3,7 @@
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Load variables from a local .env file if present
 load_dotenv()
@@ -16,9 +16,14 @@ class Settings(BaseSettings):
     mongo_db: str = "smartrose"
     api_version: str = "v1"
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Allow unknown env vars (extra="ignore") so deployment envs with
+    # additional variables don't break startup. Keep case-insensitive to match
+    # common env naming patterns.
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 @lru_cache()
