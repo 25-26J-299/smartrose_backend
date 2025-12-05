@@ -1,4 +1,11 @@
-"""EDAS model inference stub."""
+"""EDAS model inference stub.
 
-# TODO: Add model loading and inference logic for EDAS.
+Future integration point for EDAS-specific model loading and prediction.
+"""
+
+
+def predict(data: dict) -> dict:
+    """Placeholder inference; replace with real EDAS model call."""
+    # TODO: add model loading and inference logic for EDAS.
+    return {"prediction": "stub", "confidence": 0.0}
 
