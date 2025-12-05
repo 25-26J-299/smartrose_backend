@@ -4,4 +4,9 @@ motor
 pydantic
 python-dotenv
 pydantic-settings
+email-validator
+passlib[bcrypt]
+python-jose
+python-multipart
+bcrypt==4.1.2
 

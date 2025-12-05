@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "smartrose"
     api_version: str = "v1"
+    jwt_secret: str = "changeme"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
 
     # Allow unknown env vars (extra="ignore") so deployment envs with
     # additional variables don't break startup. Keep case-insensitive to match
