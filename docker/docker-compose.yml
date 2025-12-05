@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      MONGO_URI: "mongodb://mongo:27017"
+      MONGO_DB: "smartrose"
+      API_VERSION: "v1"
+    depends_on:
+      - mongo
+    ports:
+      - "8000:8000"
+    restart: always
+
+  mongo:
+    image: mongo:6
+    container_name: smartrose-mongo
+    environment:
+      MONGO_INITDB_DATABASE: smartrose
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    restart: always
+
+volumes:
+  mongo_data:
+

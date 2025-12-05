@@ -1,32 +1,32 @@
+"""Application configuration management."""
+
+from functools import lru_cache
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
-from typing import List
+
+# Load variables from a local .env file if present
+load_dotenv()
 
 
 class Settings(BaseSettings):
-    """
-    Application settings
-    """
-    # App settings
-    APP_NAME: str = "SmartRose Backend"
-    DEBUG: bool = False
-    VERSION: str = "1.0.0"
-    
-    # CORS settings
-    CORS_ORIGINS: List[str] = ["*"]
-    
-    # Database settings
-    DATABASE_URL: str = "sqlite:///./smartrose.db"
-    
-    # API settings
-    API_V1_PREFIX: str = "/api/v1"
-    
-    model_config = ConfigDict(
-        env_file=".env",
-        case_sensitive=True
-    )
+    """Centralized settings pulled from environment variables."""
+
+    mongo_uri: str = "mongodb://localhost:27017"
+    mongo_db: str = "smartrose"
+    api_version: str = "v1"
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
 
 
-settings = Settings()
+@lru_cache()
+def get_settings() -> Settings:
+    """Cache settings to avoid re-reading environment values."""
+    return Settings()
 
+
+# Expose a singleton-style settings instance for easy imports
+settings = get_settings()
 
