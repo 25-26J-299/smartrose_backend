@@ -1,82 +1,28 @@
-# Python
+# Byte-compiled / cache
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
-# Virtual Environment
+# Virtual environments
+.venv/
 venv/
 env/
-ENV/
-.venv
 
-# IDE
+# Environment files
+.env
+
+# VS Code / IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Testing
+# Pytest
 .pytest_cache/
-.coverage
-htmlcov/
-.tox/
 
-# Logs
-*.log
-logs/
+# Docker artifacts
+*.pid
 
-# OS
-.DS_Store
-Thumbs.db
+# Model artifacts
+*.pkl
 
-# Arduino
-*.hex
-*.elf
-*.bin
-*.eep
-*.lss
-*.sym
-*.map
-*.su
-*.d
-*.o
-*.a
-*.lst
-*.tmp
-*.bak
-*.swp
-build/
-*.ino.bak
-
-# Jupyter Notebook
-.ipynb_checkpoints
-*/.ipynb_checkpoints/*
-*.ipynb_checkpoints
