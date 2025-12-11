@@ -3,10 +3,13 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.collections.sensor_readings import insert_sensor_reading
+from app.db.collections.sensor_readings import (
+    find_recent_sensor_readings,
+    insert_sensor_reading,
+)
 from app.db.mongodb import get_db
 from app.models.sensor_models import LoRaSensorIngest, SensorData
 from app.services.iot_service import ingest_lora_reading
@@ -65,6 +68,21 @@ async def ingest_sensor_data(
     return success_response(
         message="Sensor data stored successfully", data={"id": inserted_id}
     )
+
+
+@router.get(
+    "/",
+    summary="List recent sensor readings",
+    response_model=dict,
+    tags=["sensor-data"],
+)
+async def list_sensor_readings(
+    limit: int = Query(20, ge=1, le=200),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    """Return the most recent sensor readings for dashboards."""
+    readings = await find_recent_sensor_readings(db, limit=limit)
+    return success_response(message="ok", data={"items": readings})
 
 
 @router.post(
