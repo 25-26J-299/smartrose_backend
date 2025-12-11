@@ -3,12 +3,13 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.collections.sensor_readings import insert_sensor_reading
 from app.db.mongodb import get_db
-from app.models.sensor_models import SensorData
+from app.models.sensor_models import LoRaSensorIngest, SensorData
+from app.services.iot_service import ingest_lora_reading
 from app.utils.response_builder import success_response
 
 router = APIRouter()
@@ -64,4 +65,31 @@ async def ingest_sensor_data(
     return success_response(
         message="Sensor data stored successfully", data={"id": inserted_id}
     )
+
+
+@router.post(
+    "/ingest",
+    summary="Ingest sensor reading from LoRa gateway",
+    status_code=status.HTTP_201_CREATED,
+    tags=["sensor-data", "iot"],
+)
+async def ingest_lora_sensor_reading(
+    payload: LoRaSensorIngest, db: AsyncIOMotorDatabase = Depends(get_db)
+) -> dict:
+    """Validate and persist a LoRa gateway sensor reading."""
+    # ================= eosm component start: LoRa ingestion endpoint =================
+    try:
+        return await ingest_lora_reading(payload, db)
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Unexpected failure while inserting LoRa sensor reading",
+            extra={"sensor_id": payload.sensor_id},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to ingest sensor data due to an internal error",
+        )
+    # ================= eosm component end =================
 
