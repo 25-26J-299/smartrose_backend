@@ -5,7 +5,7 @@ from typing import Dict
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.collections.sensor_readings import insert_sensor_reading
+from app.db.collections.eosm_readings import insert_sensor_reading
 from app.models.sensor_models import LoRaSensorIngest
 from app.utils import time_utils
 from app.utils.response_builder import success_response
@@ -26,7 +26,7 @@ async def ingest_lora_reading(
     except Exception:
         logger.exception(
             "Failed to ingest LoRa reading",
-            extra={"sensor_id": payload.sensor_id},
+            extra={"basestation_id": payload.basestation_id},
         )
         raise
 

@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.collections.sensor_readings import (
+from app.db.collections.eosm_readings import (
     find_recent_sensor_readings,
     insert_sensor_reading,
 )
@@ -78,10 +78,17 @@ async def ingest_sensor_data(
 )
 async def list_sensor_readings(
     limit: int = Query(20, ge=1, le=200),
+    basestation_id: str | None = Query(None, alias="basestationId"),
+    greenhouse_id: str | None = Query(None, alias="greenhouseId"),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> dict:
     """Return the most recent sensor readings for dashboards."""
-    readings = await find_recent_sensor_readings(db, limit=limit)
+    readings = await find_recent_sensor_readings(
+        db,
+        limit=limit,
+        basestation_id=basestation_id,
+        greenhouse_id=greenhouse_id,
+    )
     return success_response(message="ok", data={"items": readings})
 
 
@@ -103,7 +110,7 @@ async def ingest_lora_sensor_reading(
     except Exception:  # noqa: BLE001
         logger.exception(
             "Unexpected failure while inserting LoRa sensor reading",
-            extra={"sensor_id": payload.sensor_id},
+            extra={"basestation_id": payload.basestation_id},
         )
         raise HTTPException(
             status_code=500,
