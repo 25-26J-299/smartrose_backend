@@ -3,10 +3,13 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.collections.sensor_readings import insert_sensor_reading
+from app.db.collections.eosm_readings import (
+    find_recent_sensor_readings,
+    insert_sensor_reading,
+)
 from app.db.mongodb import get_db
 from app.models.sensor_models import LoRaSensorIngest, SensorData
 from app.services.iot_service import ingest_lora_reading
@@ -67,6 +70,28 @@ async def ingest_sensor_data(
     )
 
 
+@router.get(
+    "/",
+    summary="List recent sensor readings",
+    response_model=dict,
+    tags=["sensor-data"],
+)
+async def list_sensor_readings(
+    limit: int = Query(20, ge=1, le=200),
+    basestation_id: str | None = Query(None, alias="basestationId"),
+    greenhouse_id: str | None = Query(None, alias="greenhouseId"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    """Return the most recent sensor readings for dashboards."""
+    readings = await find_recent_sensor_readings(
+        db,
+        limit=limit,
+        basestation_id=basestation_id,
+        greenhouse_id=greenhouse_id,
+    )
+    return success_response(message="ok", data={"items": readings})
+
+
 @router.post(
     "/ingest",
     summary="Ingest sensor reading from LoRa gateway",
@@ -85,7 +110,7 @@ async def ingest_lora_sensor_reading(
     except Exception:  # noqa: BLE001
         logger.exception(
             "Unexpected failure while inserting LoRa sensor reading",
-            extra={"sensor_id": payload.sensor_id},
+            extra={"basestation_id": payload.basestation_id},
         )
         raise HTTPException(
             status_code=500,

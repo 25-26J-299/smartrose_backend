@@ -40,8 +40,11 @@ class LoRaSensorIngest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    sensor_id: constr(strip_whitespace=True, min_length=1) = Field(
-        ..., alias="sensorId", description="Gateway identifier"
+    basestation_id: constr(strip_whitespace=True, min_length=1) = Field(
+        ..., alias="basestationId", description="Gateway/base-station identifier"
+    )
+    greenhouse_id: constr(strip_whitespace=True, min_length=1) = Field(
+        ..., alias="greenhouseId", description="Greenhouse identifier"
     )
     timestamp: int = Field(
         ...,
