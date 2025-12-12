@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-COLLECTION_NAME = "sensor_readings"
+COLLECTION_NAME = "eosm_s_data"
 logger = logging.getLogger(__name__)
 
 
@@ -18,13 +18,19 @@ async def insert_sensor_reading(db: AsyncIOMotorDatabase, payload: dict) -> str:
         # Log before bubbling up so request handlers can return a clean 500.
         logger.exception(
             "Failed to insert sensor reading",
-            extra={"collection": COLLECTION_NAME, "sensor_id": payload.get("sensor_id")},
+            extra={
+                "collection": COLLECTION_NAME,
+                "basestation_id": payload.get("basestation_id"),
+            },
         )
         raise
 
 
 async def find_recent_sensor_readings(
-    db: AsyncIOMotorDatabase, limit: int = 20
+    db: AsyncIOMotorDatabase,
+    limit: int = 20,
+    basestation_id: str | None = None,
+    greenhouse_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Fetch the most recent sensor readings."""
     # Sort primarily by received_at/timestamp if present, then created_at as a fallback.
@@ -35,6 +41,8 @@ async def find_recent_sensor_readings(
     ]
     projection = {
         "sensor_id": 1,
+        "basestation_id": 1,
+        "greenhouse_id": 1,
         "timestamp": 1,
         "received_at": 1,
         "temperature": 1,
@@ -48,9 +56,15 @@ async def find_recent_sensor_readings(
         "created_at": 1,
     }
 
+    query: Dict[str, Any] = {}
+    if basestation_id:
+        query["basestation_id"] = basestation_id
+    if greenhouse_id:
+        query["greenhouse_id"] = greenhouse_id
+
     cursor = (
         db[COLLECTION_NAME]
-        .find({}, projection)
+        .find(query, projection)
         .sort(sort_keys)
         .limit(max(1, limit))
     )

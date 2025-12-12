@@ -26,7 +26,7 @@ async def ingest_lora_reading(
     except Exception:
         logger.exception(
             "Failed to ingest LoRa reading",
-            extra={"sensor_id": payload.sensor_id},
+            extra={"basestation_id": payload.basestation_id},
         )
         raise
 
