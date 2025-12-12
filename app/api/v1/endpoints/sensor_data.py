@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.collections.sensor_readings import (
+from app.db.collections.eosm_readings import (
     find_recent_sensor_readings,
     insert_sensor_reading,
 )

@@ -5,7 +5,7 @@ from typing import Dict
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.collections.sensor_readings import insert_sensor_reading
+from app.db.collections.eosm_readings import insert_sensor_reading
 from app.models.sensor_models import LoRaSensorIngest
 from app.utils import time_utils
 from app.utils.response_builder import success_response

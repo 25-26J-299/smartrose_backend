@@ -1,4 +1,4 @@
-"""Data access helpers for the sensor_readings collection."""
+"""Data access helpers for the eosm_s_data collection."""
 
 import logging
 from typing import Any, Dict, List
