@@ -1,4 +1,4 @@
-"""Pydantic models that describe sensor payloads."""
+"""Pydantic models for eosm LoRa sensor payloads."""
 
 from datetime import datetime
 
@@ -6,13 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, constr
 
 
 class SensorData(BaseModel):
-    """Payload shape for incoming sensor readings."""
+    """Legacy/general sensor payload (kept for backward compatibility)."""
 
-    # Keep sensor id non-empty to avoid silent ingestion of anonymous devices.
     sensor_id: constr(strip_whitespace=True, min_length=1) = Field(
         ..., description="Unique hardware identifier"
     )
-    # Basic physical sanity checks; can be tightened as domain knowledge improves.
     temperature: float = Field(
         ...,
         ge=-100,
