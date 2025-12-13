@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.db.collections.sensor_readings import (
+from app.db.collections.inm_readings import (
     create_inm_reading,
     delete_inm_reading,
     get_all_inm_readings,
