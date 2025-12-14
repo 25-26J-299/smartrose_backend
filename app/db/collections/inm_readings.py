@@ -1,6 +1,7 @@
 """Data access helpers for the inm_sensor_data collection."""
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 from bson import ObjectId
@@ -16,8 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 async def create_inm_reading(db: AsyncIOMotorDatabase, payload: dict) -> str:
-    """Insert an INM sensor reading and return the inserted document id."""
+    """Insert an INM sensor reading and return the inserted document id.
+    
+    Backend always controls the timestamp to ensure consistency.
+    """
     try:
+        # Force backend-controlled timestamp
+        payload["timestamp"] = datetime.utcnow()
+        
         result = await db[INM_COLLECTION_NAME].insert_one(payload)
         logger.info(
             "INM sensor reading created",
@@ -27,7 +34,7 @@ async def create_inm_reading(db: AsyncIOMotorDatabase, payload: dict) -> str:
     except Exception:  # noqa: BLE001
         logger.exception(
             "Failed to insert INM sensor reading",
-            extra={"collection": INM_COLLECTION_NAME, "sensor_id": payload.get("sensor_id")},
+            extra={"collection": INM_COLLECTION_NAME, "device_id": payload.get("device_id")},
         )
         raise
 

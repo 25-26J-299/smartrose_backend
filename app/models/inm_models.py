@@ -7,14 +7,20 @@ from pydantic import BaseModel, Field
 
 
 class INMSensorData(BaseModel):
-    """Schema for INM sensor data input."""
+    """Schema for full ESP32 INM sensor data input (NPK + pH + EC + soil + air)."""
 
-    sensor_id: str = Field(..., description="Unique identifier for the sensor")
-    temperature: float = Field(..., description="Temperature reading in Celsius")
-    humidity: float = Field(..., description="Humidity percentage (0-100)")
-    soil_moisture: float = Field(..., description="Soil moisture percentage (0-100)")
+    device_id: str = Field(..., description="Unique identifier for the ESP32 device")
+    soil_moisture: float = Field(..., description="Soil moisture percentage")
+    soil_temp: float = Field(..., description="Soil temperature in Celsius")
+    ec: int = Field(..., description="Electrical conductivity (µS/cm)")
+    ph: float = Field(..., description="Soil pH level")
+    N: int = Field(..., description="Nitrogen content (mg/kg)")
+    P: int = Field(..., description="Phosphorus content (mg/kg)")
+    K: int = Field(..., description="Potassium content (mg/kg)")
+    air_temp: float = Field(..., description="Air temperature in Celsius")
+    air_hum: float = Field(..., description="Air humidity percentage")
     timestamp: Optional[datetime] = Field(
-        default=None, description="Reading timestamp (auto-set if not provided)"
+        default=None, description="Reading timestamp (auto-set by backend)"
     )
 
 
@@ -30,9 +36,15 @@ class INMSensorDataInDB(INMSensorData):
 class INMSensorDataUpdate(BaseModel):
     """Schema for updating INM sensor data (all fields optional)."""
 
-    sensor_id: Optional[str] = None
-    temperature: Optional[float] = None
-    humidity: Optional[float] = None
+    device_id: Optional[str] = None
     soil_moisture: Optional[float] = None
+    soil_temp: Optional[float] = None
+    ec: Optional[int] = None
+    ph: Optional[float] = None
+    N: Optional[int] = None
+    P: Optional[int] = None
+    K: Optional[int] = None
+    air_temp: Optional[float] = None
+    air_hum: Optional[float] = None
     timestamp: Optional[datetime] = None
 

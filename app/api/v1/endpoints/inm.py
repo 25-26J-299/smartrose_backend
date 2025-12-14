@@ -1,7 +1,5 @@
 """Endpoints for INM model interactions and sensor data CRUD."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.db.collections.inm_readings import (
@@ -38,19 +36,17 @@ async def inm_predict(payload: dict) -> dict:
 
 
 @router.post("/sensor-data", summary="Create INM sensor reading", status_code=201)
-async def create_sensor_data(data: INMSensorData, db=Depends(get_db)) -> dict:
-    """Create a new INM sensor reading.
-
-    If timestamp is not provided, it will be set to the current UTC time.
+async def create_sensor_data(payload: INMSensorData, db=Depends(get_db)) -> dict:
+    """Create a new INM sensor reading from ESP32 full sensor payload.
+    
+    Accepts: device_id, N, P, K, ec, ph, soil_temp, soil_moisture, air_temp, air_hum
+    Timestamp is set by the backend automatically.
     """
-    payload = data.model_dump()
-    if payload.get("timestamp") is None:
-        payload["timestamp"] = datetime.now(timezone.utc)
-
-    reading_id = await create_inm_reading(db, payload)
+    data = payload.model_dump()
+    record_id = await create_inm_reading(db, data)
     return {
         "status": "created",
-        "id": reading_id,
+        "id": record_id,
         "message": "INM sensor reading created successfully",
     }
 
