@@ -45,6 +45,8 @@ async def update_roles(
     db: AsyncIOMotorDatabase, user_id: str, roles: list[str]
 ) -> Optional[dict]:
     """Update user roles and return the updated document."""
+    if not ObjectId.is_valid(user_id):
+        return None
     await db[COLLECTION_NAME].update_one(
         {"_id": ObjectId(user_id)},
         {"$set": {"roles": roles}},
