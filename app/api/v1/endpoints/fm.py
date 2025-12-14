@@ -12,33 +12,57 @@ router = APIRouter(prefix="/fm", tags=["FM"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/upload", summary="Upload sensor reading")
+@router.post("/upload", summary="Upload sensor reading from ESP32")
 async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
     """Upload and save a sensor reading to MongoDB.
 
-    Accepts FMSensorInput with sensor data (temperature, humidity, gas_value,
-    water_level, device_id, timestamp) and saves it to the database.
+    Accepts JSON from ESP32 with sensor data and saves it to the database.
+    No authentication required.
+
+    Expected JSON format:
+    {
+        "device_id": "device_001",
+        "temperature": 20.5,
+        "humidity": 65.0,
+        "gas_value": 45.0,
+        "water_level": 75,
+        "timestamp": "2025-01-01T12:00:00Z"  // Optional: ISO string or Unix timestamp
+    }
+
+    If timestamp is not provided, current UTC time will be used.
 
     Args:
-        payload: FMSensorInput model instance with sensor reading data
+        payload: FMSensorInput model instance with sensor data
 
     Returns:
         Dictionary with "message" set to "saved" and "id" containing the
         inserted document ID
 
     Raises:
-        HTTPException: If database insertion fails (500 status code)
+        HTTPException: If validation fails (422) or database insertion fails (500)
     """
     try:
         logger.info(
-            "Sensor reading upload received",
+            "Sensor reading upload received from ESP32",
             extra={
                 "device_id": payload.device_id,
+                "temperature": payload.temperature,
+                "humidity": payload.humidity,
+                "gas_value": payload.gas_value,
+                "water_level": payload.water_level,
                 "timestamp": payload.timestamp.isoformat(),
             },
         )
 
         inserted_id = await save_reading(payload)
+
+        logger.info(
+            "Sensor reading saved successfully",
+            extra={
+                "device_id": payload.device_id,
+                "inserted_id": inserted_id,
+            },
+        )
 
         return {"message": "saved", "id": inserted_id}
     except HTTPException:
