@@ -25,6 +25,6 @@ async def db_health() -> dict:
         logger.exception("MongoDB health check failed")
         raise HTTPException(
             status_code=503,
-            detail={"status": "error", "reason": str(exc)},
+            detail=f"MongoDB health check failed: {exc}",
         )
 
