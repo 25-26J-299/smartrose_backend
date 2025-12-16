@@ -1,7 +1,8 @@
 """Data access helpers for the eosm_s_data collection."""
 
 import logging
-from typing import Any, Dict, List
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -31,8 +32,19 @@ async def find_recent_sensor_readings(
     limit: int = 20,
     basestation_id: str | None = None,
     greenhouse_id: str | None = None,
+    start_timestamp: Optional[int] = None,
+    end_timestamp: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetch the most recent sensor readings."""
+    """Fetch sensor readings with optional filters.
+    
+    Args:
+        db: MongoDB database instance
+        limit: Maximum number of records to return
+        basestation_id: Filter by basestation ID
+        greenhouse_id: Filter by greenhouse ID
+        start_timestamp: Filter records with timestamp >= start_timestamp (epoch seconds)
+        end_timestamp: Filter records with timestamp <= end_timestamp (epoch seconds)
+    """
     # Sort primarily by received_at/timestamp if present, then created_at as a fallback.
     sort_keys = [
         ("received_at", -1),
@@ -61,6 +73,16 @@ async def find_recent_sensor_readings(
         query["basestation_id"] = basestation_id
     if greenhouse_id:
         query["greenhouse_id"] = greenhouse_id
+    
+    # Add timestamp range filtering
+    if start_timestamp is not None or end_timestamp is not None:
+        timestamp_query: Dict[str, Any] = {}
+        if start_timestamp is not None:
+            timestamp_query["$gte"] = start_timestamp
+        if end_timestamp is not None:
+            timestamp_query["$lte"] = end_timestamp
+        if timestamp_query:
+            query["timestamp"] = timestamp_query
 
     cursor = (
         db[COLLECTION_NAME]
