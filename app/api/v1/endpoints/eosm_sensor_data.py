@@ -1,6 +1,7 @@
 """Endpoints for ingesting eosm LoRa sensor readings."""
 
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -17,22 +18,58 @@ logger = logging.getLogger(__name__)
 
 @router.get(
     "/",
-    summary="List recent sensor readings",
+    summary="List sensor readings with optional date range filtering",
     response_model=dict,
     tags=["sensor-data"],
 )
 async def list_sensor_readings(
-    limit: int = Query(20, ge=1, le=200),
+    limit: int = Query(20, ge=1, le=2000),
     basestation_id: str | None = Query(None, alias="basestationId"),
     greenhouse_id: str | None = Query(None, alias="greenhouseId"),
+    start_date: str | None = Query(None, alias="startDate", description="Start date in YYYY-MM-DD format"),
+    end_date: str | None = Query(None, alias="endDate", description="End date in YYYY-MM-DD format"),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> dict:
-    """Return the most recent sensor readings for dashboards."""
+    """Return sensor readings with optional filters.
+    
+    Supports date range filtering using startDate and endDate (YYYY-MM-DD format).
+    Dates are converted to epoch timestamps for querying the timestamp field.
+    """
+    start_timestamp = None
+    end_timestamp = None
+    
+    if start_date:
+        try:
+            # Parse date as UTC to avoid timezone issues
+            # Interpret the date string as a date in UTC (start of day UTC)
+            dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            start_timestamp = int(dt.timestamp())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid startDate format. Expected YYYY-MM-DD, got: {start_date}"
+            )
+    
+    if end_date:
+        try:
+            # Parse date as UTC and set to end of day (23:59:59 UTC)
+            dt = datetime.strptime(end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc
+            )
+            end_timestamp = int(dt.timestamp())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid endDate format. Expected YYYY-MM-DD, got: {end_date}"
+            )
+    
     readings = await find_recent_sensor_readings(
         db,
         limit=limit,
         basestation_id=basestation_id,
         greenhouse_id=greenhouse_id,
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
     )
     return success_response(message="ok", data={"items": readings})
 
