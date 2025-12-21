@@ -5,8 +5,11 @@ from typing import Dict
 
 from fastapi import APIRouter, HTTPException, Path, Response
 
+from app.db.mongodb import get_database
 from app.models.fm_models import FMPredictionResponse, FMSensorInput
 from app.services.fm_service import get_latest, predict_from_reading, save_reading
+from app.services.fm_ml_service import FMMLError, get_ml_prediction
+from app.db.collections.fm_predictions import COLLECTION_NAME as FM_PREDICTIONS_COLLECTION
 
 router = APIRouter(prefix="/fm", tags=["FM"])
 logger = logging.getLogger(__name__)
@@ -14,32 +17,12 @@ logger = logging.getLogger(__name__)
 
 @router.post("/upload", summary="Upload sensor reading from ESP32")
 async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
-    """Upload and save a sensor reading to MongoDB.
+    """Upload a sensor reading, call external ML service, and store both in MongoDB.
 
-    Accepts JSON from ESP32 with sensor data and saves it to the database.
-    No authentication required.
-
-    Expected JSON format:
-    {
-        "device_id": "device_001",
-        "temperature": 20.5,
-        "humidity": 65.0,
-        "gas_value": 45.0,
-        "water_level": 75,
-        "timestamp": "2025-01-01T12:00:00Z"  // Optional: ISO string or Unix timestamp
-    }
-
-    If timestamp is not provided, current UTC time will be used.
-
-    Args:
-        payload: FMSensorInput model instance with sensor data
-
-    Returns:
-        Dictionary with "message" set to "saved" and "id" containing the
-        inserted document ID
-
-    Raises:
-        HTTPException: If validation fails (422) or database insertion fails (500)
+    Workflow:
+    - Save raw sensor data to the `fm_sensor_data` collection.
+    - Call the external FM ML microservice for prediction.
+    - Save prediction (freshness_score, vase_life_hours, status) to `fm_predictions`.
     """
     try:
         logger.info(
@@ -54,6 +37,7 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
             },
         )
 
+        # 1) Save raw sensor data
         inserted_id = await save_reading(payload)
 
         logger.info(
@@ -64,17 +48,64 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
             },
         )
 
-        return {"message": "saved", "id": inserted_id}
+        # 2) Call external ML service for prediction
+        try:
+            prediction = await get_ml_prediction(payload)
+        except FMMLError as exc:
+            # Raw data is already stored; surface ML error to caller.
+            logger.exception(
+                "Failed to get prediction from FM ML service",
+                extra={"device_id": payload.device_id, "sensor_id": inserted_id},
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Sensor reading saved but prediction failed: {exc}",
+            ) from exc
+
+        # 3) Store prediction result in MongoDB
+        db = get_database()
+        collection = db[FM_PREDICTIONS_COLLECTION]
+
+        prediction_doc = {
+            "sensor_id": inserted_id,
+            "device_id": payload.device_id,
+            "timestamp": payload.timestamp,
+            "temperature": payload.temperature,
+            "humidity": payload.humidity,
+            "gas_value": payload.gas_value,
+            "water_level": payload.water_level,
+            "freshness_score": prediction.get("freshness_score"),
+            "vase_life_hours": prediction.get("vase_life_hours"),
+            "status": prediction.get("status"),
+        }
+
+        pred_result = await collection.insert_one(prediction_doc)
+        prediction_id = str(pred_result.inserted_id)
+
+        logger.info(
+            "FM prediction saved successfully",
+            extra={
+                "device_id": payload.device_id,
+                "sensor_id": inserted_id,
+                "prediction_id": prediction_id,
+            },
+        )
+
+        return {
+            "message": "saved",
+            "id": inserted_id,
+            "prediction_id": prediction_id,
+        }
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.exception(
-            "Failed to upload sensor reading",
+            "Failed to upload sensor reading with prediction",
             extra={"device_id": payload.device_id},
         )
         raise HTTPException(
             status_code=500,
-            detail="Unable to save sensor reading due to an error",
+            detail="Unable to save sensor reading and prediction due to an error",
         ) from exc
 
 
