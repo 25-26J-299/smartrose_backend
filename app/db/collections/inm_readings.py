@@ -42,14 +42,26 @@ async def create_inm_reading(db: AsyncIOMotorDatabase, payload: dict) -> str:
 async def get_all_inm_readings(
     db: AsyncIOMotorDatabase,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 500,
 ) -> list[dict]:
-    """Retrieve all INM sensor readings with pagination."""
+    """Retrieve all INM sensor readings with pagination, sorted by newest first."""
     try:
-        cursor = db[INM_COLLECTION_NAME].find().skip(skip).limit(limit)
+        # Sort by timestamp descending (newest first) - IMPORTANT!
+        cursor = db[INM_COLLECTION_NAME].find().sort("timestamp", -1).skip(skip).limit(limit)
         readings = []
         async for doc in cursor:
             doc["_id"] = str(doc["_id"])
+            # Convert datetime to proper ISO format string for JSON serialization
+            if "timestamp" in doc and doc["timestamp"]:
+                if isinstance(doc["timestamp"], datetime):
+                    # Use strftime for consistent formatting with Z suffix for UTC
+                    doc["timestamp"] = doc["timestamp"].strftime("%Y-%m-%dT%H:%M:%SZ")
+                elif isinstance(doc["timestamp"], str):
+                    # Normalize string timestamps - ensure proper format
+                    ts = doc["timestamp"]
+                    # Add Z if missing and looks like ISO format
+                    if not ts.endswith('Z') and 'T' in ts and '+' not in ts and '-' not in ts[-6:]:
+                        doc["timestamp"] = ts + 'Z'
             readings.append(doc)
         return readings
     except Exception:  # noqa: BLE001
