@@ -1,18 +1,48 @@
 """FastAPI endpoints for Freshness Monitoring (FM) component."""
 
 import logging
-from typing import Dict
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Path, Response
 
 from app.db.mongodb import get_database
 from app.models.fm_models import FMPredictionResponse, FMSensorInput
-from app.services.fm_service import get_latest, predict_from_reading, save_reading
+from app.services.fm_service import get_latest, save_reading
 from app.services.fm_ml_service import FMMLError, get_ml_prediction
 from app.db.collections.fm_predictions import COLLECTION_NAME as FM_PREDICTIONS_COLLECTION
 
 router = APIRouter(prefix="/fm", tags=["FM"])
 logger = logging.getLogger(__name__)
+
+
+def _ml_response_to_prediction(
+    ml_response: Dict[str, Any], reading: FMSensorInput
+) -> FMPredictionResponse:
+    """Convert ML service response to FMPredictionResponse format.
+    
+    Args:
+        ml_response: Dict from ML service with freshness_score, vase_life_hours, status
+        reading: Original sensor reading for generating alerts
+        
+    Returns:
+        FMPredictionResponse with alerts generated from sensor readings
+    """
+    # Generate alerts based on sensor readings (not from ML status)
+    alerts = []
+    if reading.water_level < 20:
+        alerts.append("Low water level detected")
+    if reading.gas_value > 100:
+        alerts.append("High gas value detected")
+    if reading.temperature > 25.0:
+        alerts.append("High temperature detected")
+    if reading.temperature < 15.0:
+        alerts.append("Low temperature detected")
+    
+    return FMPredictionResponse(
+        freshness_score=ml_response["freshness_score"],
+        vase_life_hours=ml_response["vase_life_hours"],
+        alerts=alerts,
+    )
 
 
 @router.post("/upload", summary="Upload sensor reading from ESP32")
@@ -186,11 +216,11 @@ async def get_latest_with_prediction(
     response: Response,
     device_id: str = Path(..., description="Device ID to retrieve latest reading and prediction for"),
 ) -> Dict:
-    """Get the latest sensor reading with freshness prediction from ML model.
+    """Get the latest sensor reading with freshness prediction from ML service only.
 
     Fetches the most recent sensor reading from the database (sorted by timestamp
-    descending) and generates a freshness prediction using the ML model (or heuristic
-    fallback if model is not available).
+    descending) and generates a freshness prediction using the external ML service.
+    No heuristic fallback - predictions come exclusively from the ML service.
 
     Args:
         device_id: Device identifier to query
@@ -198,10 +228,10 @@ async def get_latest_with_prediction(
     Returns:
         Dictionary containing:
             - reading: Latest sensor reading data
-            - prediction: Freshness prediction (freshness_score, vase_life_hours, alerts)
+            - prediction: Freshness prediction from ML service (freshness_score, vase_life_hours, alerts)
 
     Raises:
-        HTTPException: If no reading found (404) or prediction fails (500)
+        HTTPException: If no reading found (404) or ML service fails (502)
     """
     try:
         logger.info(
@@ -247,8 +277,19 @@ async def get_latest_with_prediction(
             timestamp=timestamp,
         )
 
-        # Generate prediction using ML model (or heuristic fallback)
-        prediction = predict_from_reading(reading)
+        # Get prediction from ML service only (no fallback)
+        try:
+            ml_prediction = await get_ml_prediction(reading)
+            prediction = _ml_response_to_prediction(ml_prediction, reading)
+        except FMMLError as exc:
+            logger.exception(
+                "ML service error when getting prediction",
+                extra={"device_id": device_id},
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"ML service unavailable: {exc}",
+            ) from exc
 
         # Set cache-control headers to prevent caching
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -272,35 +313,47 @@ async def get_latest_with_prediction(
         ) from exc
 
 
-@router.post("/predict", summary="Predict freshness from sensor reading")
+@router.post("/predict", summary="Predict freshness from sensor reading using ML service")
 async def predict_freshness(payload: FMSensorInput) -> FMPredictionResponse:
-    """Generate freshness prediction from sensor reading data.
+    """Generate freshness prediction from sensor reading data using ML service only.
 
-    Accepts FMSensorInput and uses either the ML model (if available) or
-    a heuristic fallback to predict freshness score, vase life hours, and
-    generate alerts for conditions like low water or high gas values.
+    Accepts FMSensorInput and calls the external ML service to get predictions.
+    No heuristic fallback - predictions come exclusively from the ML service.
 
     Args:
         payload: FMSensorInput model instance with sensor reading data
 
     Returns:
         FMPredictionResponse containing:
-            - freshness_score: Predicted freshness score (0-100)
-            - vase_life_hours: Predicted vase life in hours
-            - alerts: List of alert messages for detected issues
+            - freshness_score: Predicted freshness score from ML service
+            - vase_life_hours: Predicted vase life in hours from ML service
+            - alerts: List of alert messages generated from sensor readings
 
     Raises:
-        HTTPException: If prediction fails (500 status code)
+        HTTPException: If ML service fails (502) or other error occurs (500)
     """
     try:
         logger.info(
-            "Freshness prediction requested",
+            "Freshness prediction requested from ML service",
             extra={"device_id": payload.device_id},
         )
 
-        prediction = predict_from_reading(payload)
-
-        return prediction
+        # Get prediction from ML service only (no fallback)
+        try:
+            ml_prediction = await get_ml_prediction(payload)
+            prediction = _ml_response_to_prediction(ml_prediction, payload)
+            return prediction
+        except FMMLError as exc:
+            logger.exception(
+                "ML service error when generating prediction",
+                extra={"device_id": payload.device_id},
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"ML service unavailable: {exc}",
+            ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "Failed to generate freshness prediction",
