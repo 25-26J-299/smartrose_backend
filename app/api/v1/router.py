@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     auth,
     edas,
+    eosm_predictions,
     eosm_sensor_data,
     fm,
     health,
@@ -17,6 +18,9 @@ api_router = APIRouter(prefix=f"/{settings.api_version}")
 
 api_router.include_router(
     eosm_sensor_data.router, prefix="/eosm-data", tags=["sensor-data"]
+)
+api_router.include_router(
+    eosm_predictions.router, prefix="/eosm-predictions", tags=["eosm-predictions"]
 )
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
