@@ -4,6 +4,9 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
+from pydantic.config import ConfigDict
+
+from app.services.inm_service import GrowthStage
 
 
 class INMSensorData(BaseModel):
@@ -47,4 +50,17 @@ class INMSensorDataUpdate(BaseModel):
     air_temp: Optional[float] = None
     air_hum: Optional[float] = None
     timestamp: Optional[datetime] = None
+
+
+class GrowthStageUpdateRequest(BaseModel):
+    """Request schema for setting the persistent growth stage state."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    # Accept both `growth_stage` and common camelCase `growthStage` from clients.
+    growth_stage: GrowthStage = Field(
+        ...,
+        alias="growthStage",
+        description="Current growth stage context set by farmer",
+    )
 
