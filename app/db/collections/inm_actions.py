@@ -39,7 +39,13 @@ async def create_inm_action(
     result = await db[COLLECTION_NAME].insert_one(payload)
     logger.info(
         "INM action logged",
-        extra={"collection": COLLECTION_NAME, "id": str(result.inserted_id)},
+        extra={
+            "collection": COLLECTION_NAME,
+            "id": str(result.inserted_id),
+            "growth_stage": growth_stage,
+            "action_taken": action_taken,
+            "timestamp": payload.get("timestamp"),
+        },
     )
     payload.pop("_id", None)
     return _serialize_timestamp(payload)
@@ -51,6 +57,10 @@ async def get_inm_action_history(db: AsyncIOMotorDatabase, limit: int = 50) -> l
     actions: list[dict] = []
     async for doc in cursor:
         actions.append(_serialize_timestamp(doc))
+    logger.info(
+        "INM action history fetched",
+        extra={"collection": COLLECTION_NAME, "limit": limit, "count": len(actions)},
+    )
     return actions
 
 
