@@ -11,6 +11,7 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
 from app.db.mongodb import close_db, init_db
+from app.ml.inm.inm_inference import is_model_available as inm_model_available
 
 # Configure application-wide logging as soon as the app loads
 configure_logging()
@@ -38,6 +39,9 @@ async def on_startup() -> None:
     """Warm up Mongo connection and verify reachability with a ping."""
     try:
         await init_db()
+        # Verification log: confirm INM ML model availability at startup (DEV safety check)
+        available = inm_model_available()
+        logger.info("INM ML model availability check", extra={"ml_model_loaded": available})
         logger.info("Startup checks completed")
     except Exception as exc:  # noqa: BLE001
         logger.exception("Startup failed during Mongo initialization")
