@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     fm,
     health,
     inm,
+    inm_actions,
 )
 from app.core.config import settings
 
@@ -25,5 +26,6 @@ api_router.include_router(
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(inm.router, prefix="/inm", tags=["inm"])
+api_router.include_router(inm_actions.router, prefix="/inm", tags=["inm-actions"])
 api_router.include_router(fm.router)  # Router has prefix="/fm" and tags=["FM"], combined with api_router prefix="/api/v1" = "/api/v1/fm"
 api_router.include_router(edas.router, prefix="/edas", tags=["edas"])
