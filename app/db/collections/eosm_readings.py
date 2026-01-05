@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.utils.timezone_utils import convert_datetime_fields
+
 COLLECTION_NAME = "eosm_s_data"
 logger = logging.getLogger(__name__)
 
@@ -91,7 +93,9 @@ async def find_recent_sensor_readings(
         .limit(max(1, limit))
     )
     docs = await cursor.to_list(length=limit)
-    for doc in docs:
+    for i, doc in enumerate(docs):
         doc["_id"] = str(doc.get("_id"))
+        # Convert UTC datetime fields to Sri Lankan time (IST)
+        docs[i] = convert_datetime_fields(doc, ["received_at", "created_at"])
     return docs
 
