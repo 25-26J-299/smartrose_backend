@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     MONGO_URI: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "smartrose"
     FM_MODEL_PATH: str = "smartrose_fm/models/fm_model.pkl"
-    INM_MODEL_DIR: str = ""  # Path to INM model directory (contains inm_ec_rf_model.pkl, inm_ec_scaler.pkl)
+    INM_MODEL_DIR: str = "smartrose-inm/ml/models"  # Path to INM model directory (contains inm_ec_rf_model.pkl, inm_ec_scaler.pkl)
     api_version: str = "v1"
     jwt_secret: str = "changeme"
     jwt_algorithm: str = "HS256"
