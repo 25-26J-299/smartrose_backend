@@ -20,6 +20,94 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Latest Sensor Data Endpoint (Simple Response)
+# =============================================================================
+
+@router.get(
+    "/latest-sensor-data",
+    summary="Get latest EDAS sensor data",
+    tags=["edas"],
+)
+async def get_latest_sensor_data(
+    device_id: str | None = Query(None, description="Filter by device ID"),
+    db=Depends(get_db),
+) -> dict:
+    """Get the most recent EDAS sensor data record from MongoDB.
+    
+    Returns the latest sensor reading with:
+    - plantTemp: Rose plant temperature (MLX90614 sensor)
+    - airTemp: Air temperature (SHT31 sensor)
+    - humidity: Relative humidity (SHT31 sensor)
+    - temperatureDifference: Calculated as plantTemp - airTemp
+    - timestamp: Reading time in UTC ISO format
+    
+    Query Parameters:
+        - device_id: Optional filter for specific device/zone
+    
+    Response Example:
+        {
+            "plantTemp": 29.63,
+            "airTemp": 29.83,
+            "humidity": 81.71,
+            "temperatureDifference": -0.20,
+            "timestamp": "2026-01-06T18:00:00Z"
+        }
+    
+    Note: Temperature difference is auto-calculated by backend.
+          Timestamp is returned in UTC format (timezone-agnostic).
+    """
+    try:
+        # Get latest reading from MongoDB (sorted by timestamp DESC, limit 1)
+        latest_reading = await get_latest_edas_reading(db, device_id=device_id)
+        
+        if not latest_reading:
+            raise HTTPException(
+                status_code=404,
+                detail="No EDAS sensor data found" + (f" for device {device_id}" if device_id else ""),
+            )
+        
+        # Extract required fields
+        plant_temp = latest_reading.get("plant_temperature")
+        air_temp = latest_reading.get("air_temperature")
+        humidity = latest_reading.get("humidity")
+        temp_diff = latest_reading.get("temperature_difference")
+        timestamp = latest_reading.get("timestamp")
+        
+        # Calculate temperature difference if not already present
+        # (Should already be calculated, but fallback just in case)
+        if temp_diff is None and plant_temp is not None and air_temp is not None:
+            temp_diff = plant_temp - air_temp
+        
+        # Build clean response with exact field names requested
+        response = {
+            "plantTemp": plant_temp,
+            "airTemp": air_temp,
+            "humidity": humidity,
+            "temperatureDifference": temp_diff,
+            "timestamp": timestamp.isoformat() if timestamp else None,
+        }
+        
+        logger.info(
+            "Latest sensor data retrieved",
+            extra={
+                "device_id": latest_reading.get("device_id"),
+                "timestamp": timestamp,
+            },
+        )
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fetch latest EDAS sensor data")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve latest sensor data",
+        )
+
+
 
 
 @router.post("/predict", summary="Run EDAS prediction for disease detection")

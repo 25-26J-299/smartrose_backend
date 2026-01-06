@@ -5,6 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.collections.edas_sensor_data import create_edas_reading
 from app.models.edas_models import EDASSensorData
+from app.services.edas_ml_service import generate_disease_prediction
 from app.utils import time_utils
 from app.utils.response_builder import success_response
 
@@ -42,6 +43,29 @@ async def ingest_edas_sensor_reading(
                 "temp_diff": record["temperature_difference"],
             },
         )
+        
+        # Generate ML prediction for the newly ingested reading
+        try:
+            await generate_disease_prediction(
+                plant_temperature=payload.plant_temperature,
+                air_temperature=payload.air_temperature,
+                humidity=payload.humidity,
+                timestamp=record["timestamp"],
+                device_id=payload.device_id,
+                sensor_reading_id=inserted_id,
+                db=db,
+                save_to_db=True,
+            )
+            logger.info(
+                "ML prediction generated for ingested EDAS reading",
+                extra={"reading_id": inserted_id, "device_id": payload.device_id},
+            )
+        except Exception as pred_err:
+            # Don't fail ingestion if prediction fails
+            logger.warning(
+                "Failed to generate prediction for ingested EDAS reading (non-fatal)",
+                extra={"reading_id": inserted_id, "error": str(pred_err)},
+            )
         
         return success_response(
             message="EDAS sensor data ingested successfully",

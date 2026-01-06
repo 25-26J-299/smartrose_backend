@@ -5,6 +5,8 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     auth,
     edas,
+    edas_data,
+    edas_websocket,
     eosm_predictions,
     eosm_sensor_data,
     fm,
@@ -29,3 +31,5 @@ api_router.include_router(inm.router, prefix="/inm", tags=["inm"])
 api_router.include_router(inm_actions.router, prefix="/inm", tags=["inm-actions"])
 api_router.include_router(fm.router)  # Router has prefix="/fm" and tags=["FM"], combined with api_router prefix="/api/v1" = "/api/v1/fm"
 api_router.include_router(edas.router, prefix="/edas", tags=["edas"])
+api_router.include_router(edas_data.router, prefix="/edas-data", tags=["edas-data"])
+api_router.include_router(edas_websocket.router, prefix="/edas-data", tags=["edas-websocket"])
