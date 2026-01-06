@@ -18,25 +18,35 @@ logger = logging.getLogger(__name__)
 def _ml_response_to_prediction(
     ml_response: Dict[str, Any], reading: FMSensorInput
 ) -> FMPredictionResponse:
-    """Convert ML service response to FMPredictionResponse format.
-    
-    Args:
-        ml_response: Dict from ML service with freshness_score, vase_life_hours, status
-        reading: Original sensor reading for generating alerts
-        
-    Returns:
-        FMPredictionResponse with alerts generated from sensor readings
-    """
+
     # Generate alerts based on sensor readings (not from ML status)
     alerts = []
+    
+    # Water level alerts
     if reading.water_level < 20:
         alerts.append("Low water level detected")
+    
+    # Gas value alerts
     if reading.gas_value > 100:
         alerts.append("High gas value detected")
-    if reading.temperature > 25.0:
-        alerts.append("High temperature detected")
-    if reading.temperature < 15.0:
-        alerts.append("Low temperature detected")
+    
+    # Air temperature alerts
+    if reading.air_temperature > 25.0:
+        alerts.append("High air temperature detected")
+    if reading.air_temperature < 15.0:
+        alerts.append("Low air temperature detected")
+    
+    # Water temperature alerts
+    if reading.water_temperature > 25.0:
+        alerts.append("High water temperature detected")
+    if reading.water_temperature < 15.0:
+        alerts.append("Low water temperature detected")
+    
+    # Humidity alerts
+    if reading.humidity > 80.0:
+        alerts.append("High humidity detected")
+    if reading.humidity < 40.0:
+        alerts.append("Low humidity detected")
     
     return FMPredictionResponse(
         freshness_score=ml_response["freshness_score"],
@@ -47,19 +57,14 @@ def _ml_response_to_prediction(
 
 @router.post("/upload", summary="Upload sensor reading from ESP32")
 async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
-    """Upload a sensor reading, call external ML service, and store both in MongoDB.
 
-    Workflow:
-    - Save raw sensor data to the `fm_sensor_data` collection.
-    - Call the external FM ML microservice for prediction.
-    - Save prediction (freshness_score, vase_life_hours, status) to `fm_predictions`.
-    """
     try:
         logger.info(
             "Sensor reading upload received from ESP32",
             extra={
                 "device_id": payload.device_id,
-                "temperature": payload.temperature,
+                "air_temperature": payload.air_temperature,
+                "water_temperature": payload.water_temperature,
                 "humidity": payload.humidity,
                 "gas_value": payload.gas_value,
                 "water_level": payload.water_level,
@@ -100,7 +105,8 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
             "sensor_id": inserted_id,
             "device_id": payload.device_id,
             "timestamp": payload.timestamp,
-            "temperature": payload.temperature,
+            "air_temperature": payload.air_temperature,
+            "water_temperature": payload.water_temperature,
             "humidity": payload.humidity,
             "gas_value": payload.gas_value,
             "water_level": payload.water_level,
@@ -169,35 +175,50 @@ async def get_all_readings_debug(
 async def get_latest_reading(
     device_id: str = Path(..., description="Device ID to retrieve latest reading for")
 ) -> Dict:
-    """Get the latest sensor reading for a specific device.
 
-    Queries MongoDB for the most recent sensor reading document matching
-    the provided device_id, sorted by timestamp descending (latest update first).
-
-    Args:
-        device_id: Device identifier to query
-
-    Returns:
-        Latest sensor reading document as a dictionary
-
-    Raises:
-        HTTPException: If no reading found (404) or database query fails (500)
-    """
     try:
         logger.info(
             "Latest reading requested",
             extra={"device_id": device_id},
         )
 
-        reading = await get_latest(device_id)
+        reading_doc = await get_latest(device_id)
 
-        if reading is None:
+        if reading_doc is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"No readings found for device_id: {device_id}",
             )
 
-        return reading
+        # Convert to FMSensorInput format to ensure proper field names
+        # The model_validator will handle backward compatibility automatically
+        from app.models.fm_models import FMSensorInput
+        
+        try:
+            # Create a copy to avoid modifying the original document
+            reading_data = dict(reading_doc)
+            # Remove MongoDB _id field as it's not part of FMSensorInput
+            _id = reading_data.pop("_id", None)
+            
+            # Pydantic will use model_validator to handle old 'temperature' field
+            reading = FMSensorInput(**reading_data)
+            
+            # Convert back to dict and add _id back
+            # Use mode='json' to ensure datetime objects are serialized as ISO strings
+            result = reading.model_dump(mode='json')
+            result["_id"] = _id
+            return result
+        except Exception as exc:
+            logger.exception(
+                "Failed to parse reading document",
+                extra={
+                    "device_id": device_id,
+                    "document_keys": list(reading_doc.keys()),
+                    "error": str(exc),
+                },
+            )
+            # Fallback: return raw document if parsing fails
+            return reading_doc
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -216,23 +237,7 @@ async def get_latest_with_prediction(
     response: Response,
     device_id: str = Path(..., description="Device ID to retrieve latest reading and prediction for"),
 ) -> Dict:
-    """Get the latest sensor reading with freshness prediction from ML service only.
 
-    Fetches the most recent sensor reading from the database (sorted by timestamp
-    descending) and generates a freshness prediction using the external ML service.
-    No heuristic fallback - predictions come exclusively from the ML service.
-
-    Args:
-        device_id: Device identifier to query
-
-    Returns:
-        Dictionary containing:
-            - reading: Latest sensor reading data
-            - prediction: Freshness prediction from ML service (freshness_score, vase_life_hours, alerts)
-
-    Raises:
-        HTTPException: If no reading found (404) or ML service fails (502)
-    """
     try:
         logger.info(
             "Latest reading with prediction requested",
@@ -259,23 +264,31 @@ async def get_latest_with_prediction(
         )
 
         # Convert database document to FMSensorInput for prediction
+        # The model_validator will handle backward compatibility automatically
         from app.models.fm_models import FMSensorInput
-        from datetime import datetime
-
-        # Motor/MongoDB returns datetime objects directly, but handle string conversion if needed
-        timestamp = reading_doc["timestamp"]
-        if isinstance(timestamp, str):
-            # Parse ISO format string if needed
-            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-
-        reading = FMSensorInput(
-            device_id=reading_doc["device_id"],
-            temperature=reading_doc["temperature"],
-            humidity=reading_doc["humidity"],
-            gas_value=reading_doc["gas_value"],
-            water_level=reading_doc["water_level"],
-            timestamp=timestamp,
-        )
+        
+        try:
+            # Let Pydantic handle the conversion, including backward compatibility
+            # Create a copy to avoid modifying the original document
+            reading_data = dict(reading_doc)
+            # Remove MongoDB _id field as it's not part of FMSensorInput
+            reading_data.pop("_id", None)
+            
+            # Pydantic will use model_validator to handle old 'temperature' field
+            reading = FMSensorInput(**reading_data)
+        except Exception as exc:
+            logger.exception(
+                "Failed to parse reading document",
+                extra={
+                    "device_id": device_id,
+                    "document_keys": list(reading_doc.keys()),
+                    "error": str(exc),
+                },
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to parse sensor reading: {exc}",
+            ) from exc
 
         # Get prediction from ML service only (no fallback)
         try:
@@ -296,9 +309,16 @@ async def get_latest_with_prediction(
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
 
+        # Return the converted reading (with proper field names) instead of raw doc
+        # This ensures frontend receives air_temperature and water_temperature
+        # Use mode='json' to ensure datetime objects are serialized as ISO strings
+        reading_dict = reading.model_dump(mode='json')
+        # Add back the _id for frontend reference
+        reading_dict["_id"] = reading_doc.get("_id")
+
         return {
-            "reading": reading_doc,
-            "prediction": prediction.model_dump(),
+            "reading": reading_dict,
+            "prediction": prediction.model_dump(mode='json'),
         }
     except HTTPException:
         raise
@@ -315,23 +335,7 @@ async def get_latest_with_prediction(
 
 @router.post("/predict", summary="Predict freshness from sensor reading using ML service")
 async def predict_freshness(payload: FMSensorInput) -> FMPredictionResponse:
-    """Generate freshness prediction from sensor reading data using ML service only.
 
-    Accepts FMSensorInput and calls the external ML service to get predictions.
-    No heuristic fallback - predictions come exclusively from the ML service.
-
-    Args:
-        payload: FMSensorInput model instance with sensor reading data
-
-    Returns:
-        FMPredictionResponse containing:
-            - freshness_score: Predicted freshness score from ML service
-            - vase_life_hours: Predicted vase life in hours from ML service
-            - alerts: List of alert messages generated from sensor readings
-
-    Raises:
-        HTTPException: If ML service fails (502) or other error occurs (500)
-    """
     try:
         logger.info(
             "Freshness prediction requested from ML service",
