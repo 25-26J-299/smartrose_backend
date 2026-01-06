@@ -23,11 +23,7 @@ _model: Optional[object] = None
 
 
 def _load_model() -> Optional[object]:
-    """Load the FM model from the configured path using joblib.
 
-    Returns:
-        Loaded model object if found, None otherwise.
-    """
     global _model
 
     # Return cached model if already loaded
@@ -50,17 +46,7 @@ def _load_model() -> Optional[object]:
 
 
 async def save_reading(reading: FMSensorInput) -> str:
-    """Save a sensor reading to MongoDB collection 'fm_sensor_data'.
 
-    Args:
-        reading: FMSensorInput model instance with sensor data
-
-    Returns:
-        The inserted document ID as a string
-
-    Raises:
-        Exception: If database insertion fails
-    """
     db = get_database()
     collection = db[COLLECTION_NAME]
 
@@ -91,18 +77,7 @@ async def save_reading(reading: FMSensorInput) -> str:
 
 
 async def get_latest(device_id: str) -> Optional[dict]:
-    """Get the latest sensor reading for a device from MongoDB.
-
-    Queries the 'fm_sensor_data' collection for the most recent document
-    matching the device_id, sorted by timestamp descending (most recent first).
-    Uses both timestamp and _id sorting to ensure we get the absolute latest.
-
-    Args:
-        device_id: Device identifier to query
-
-    Returns:
-        Latest sensor reading document as dict, or None if not found
-    """
+  
     db = get_database()
     collection = db[COLLECTION_NAME]
 
@@ -129,7 +104,7 @@ async def get_latest(device_id: str) -> Optional[dict]:
                     "device_id": device_id,
                     "timestamp": timestamp_str,
                     "document_id": doc["_id"],
-                    "temperature": doc.get("temperature"),
+                    "air_temperature": doc.get("air_temperature"),
                     "humidity": doc.get("humidity"),
                 },
             )
@@ -163,10 +138,11 @@ def predict_from_reading(reading: FMSensorInput) -> FMPredictionResponse:
 
     if model is not None:
         try:
-            # Prepare features: [temperature, humidity, gas_value, water_level]
+            # Prepare features: [air_temperature, humidity, gas_value, water_level]
+            # Note: ML model still expects "temperature" parameter, so we pass air_temperature
             features = [
                 [
-                    reading.temperature,
+                    reading.air_temperature,
                     reading.humidity,
                     reading.gas_value,
                     reading.water_level,
@@ -206,10 +182,32 @@ def predict_from_reading(reading: FMSensorInput) -> FMPredictionResponse:
             vase_life_hours = max(0.0, vase_life_hours)
 
             alerts = []
+            
+            # Water level alerts
             if reading.water_level < 20:
                 alerts.append("Low water level detected")
+            
+            # Gas value alerts
             if reading.gas_value > 100:
                 alerts.append("High gas value detected")
+            
+            # Air temperature alerts
+            if reading.air_temperature > 25.0:
+                alerts.append("High air temperature detected")
+            if reading.air_temperature < 15.0:
+                alerts.append("Low air temperature detected")
+            
+            # Water temperature alerts
+            if reading.water_temperature > 25.0:
+                alerts.append("High water temperature detected")
+            if reading.water_temperature < 15.0:
+                alerts.append("Low water temperature detected")
+            
+            # Humidity alerts
+            if reading.humidity > 80.0:
+                alerts.append("High humidity detected")
+            if reading.humidity < 40.0:
+                alerts.append("Low humidity detected")
 
             logger.info(
                 "Prediction generated using ML model",
@@ -235,8 +233,8 @@ def predict_from_reading(reading: FMSensorInput) -> FMPredictionResponse:
     # Heuristic fallback when model is not available or prediction fails
     try:
         # Simple heuristic: base score on optimal conditions
-        # Optimal: temp ~20C, humidity ~60%, gas <50, water >50
-        temp_score = 100.0 - abs(reading.temperature - 20.0) * 2.0
+        # Optimal: air_temp ~20C, humidity ~60%, gas <50, water >50
+        temp_score = 100.0 - abs(reading.air_temperature - 20.0) * 2.0
         humidity_score = 100.0 - abs(reading.humidity - 60.0) * 1.5
         gas_score = max(0.0, 100.0 - reading.gas_value * 0.5)
         water_score = min(100.0, reading.water_level * 2.0)
@@ -258,14 +256,32 @@ def predict_from_reading(reading: FMSensorInput) -> FMPredictionResponse:
 
         # Generate alerts
         alerts = []
+        
+        # Water level alerts
         if reading.water_level < 20:
             alerts.append("Low water level detected")
+        
+        # Gas value alerts
         if reading.gas_value > 100:
             alerts.append("High gas value detected")
-        if reading.temperature > 25.0:
-            alerts.append("High temperature detected")
-        if reading.temperature < 15.0:
-            alerts.append("Low temperature detected")
+        
+        # Air temperature alerts
+        if reading.air_temperature > 25.0:
+            alerts.append("High air temperature detected")
+        if reading.air_temperature < 15.0:
+            alerts.append("Low air temperature detected")
+        
+        # Water temperature alerts
+        if reading.water_temperature > 25.0:
+            alerts.append("High water temperature detected")
+        if reading.water_temperature < 15.0:
+            alerts.append("Low water temperature detected")
+        
+        # Humidity alerts
+        if reading.humidity > 80.0:
+            alerts.append("High humidity detected")
+        if reading.humidity < 40.0:
+            alerts.append("Low humidity detected")
 
         logger.info(
             "Prediction generated using heuristic fallback",
