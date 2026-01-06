@@ -12,7 +12,10 @@ bcrypt==4.1.2
 joblib
 httpx
 numpy
-scikit-learn
+pandas
+scikit-learn==1.6.1
+
+
 
 
 

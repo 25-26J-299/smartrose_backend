@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class FMMLError(RuntimeError):
     """Raised when the FM ML prediction fails."""
+    pass
 
 
 async def get_ml_prediction(reading: FMSensorInput) -> Dict[str, Any]:
@@ -22,17 +23,19 @@ async def get_ml_prediction(reading: FMSensorInput) -> Dict[str, Any]:
     logger.debug(
         "Generating FM prediction with local models",
         extra={
-            "temperature": reading.temperature,
+            "air_temperature": reading.air_temperature,
             "humidity": reading.humidity,
             "gas_value": reading.gas_value,
             "water_level": reading.water_level,
+            "water_temperature": reading.water_temperature,
         }
     )
 
     try:
         # Get prediction from local ML model
+        # Note: ML model expects "temperature" parameter, so we pass air_temperature
         prediction_result = predict_freshness(
-            temperature=reading.temperature,
+            temperature=reading.air_temperature,
             humidity=reading.humidity,
             gas_value=reading.gas_value,
             water_level=reading.water_level,

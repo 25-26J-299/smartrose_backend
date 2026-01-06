@@ -7,6 +7,7 @@ from typing import Optional
 
 import joblib
 import numpy as np
+import pandas as pd
 
 from app.core.config import settings
 
@@ -140,17 +141,18 @@ def predict_freshness(
         return None
     
     try:
-        # Prepare feature array in the EXACT order expected by the model
-        features = np.array([[
-            temperature,
-            humidity,
-            gas_value,
-            water_level,
-        ]])
+        # Prepare feature DataFrame with proper column names (fixes sklearn warning)
+        # Must match the feature names used during model training
+        features_df = pd.DataFrame({
+            "temperature": [temperature],
+            "humidity": [humidity],
+            "gas_value": [gas_value],
+            "water_level": [water_level],
+        })
         
         # Make predictions
-        freshness_score_raw = float(_freshness_model.predict(features)[0])
-        vase_life_hours_raw = float(_vase_life_model.predict(features)[0])
+        freshness_score_raw = float(_freshness_model.predict(features_df)[0])
+        vase_life_hours_raw = float(_vase_life_model.predict(features_df)[0])
         
         # Round to reasonable precision
         freshness_score = round(freshness_score_raw, 4)

@@ -1,18 +1,31 @@
 """Pydantic models for the Freshness Monitoring component."""
 
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class FMSensorInput(BaseModel):
-    temperature: float
+    air_temperature: float
     humidity: float
     gas_value: float
     water_level: int
+    water_temperature: float = Field(default=20.0, description="Water temperature in Celsius. Defaults to 20.0 if not provided.")
     device_id: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_legacy_temperature_field(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # If old 'temperature' field exists but not 'air_temperature'
+            if "temperature" in data and "air_temperature" not in data:
+                data["air_temperature"] = data["temperature"]
+                # If water_temperature also not provided, use same value
+                if "water_temperature" not in data:
+                    data["water_temperature"] = data["temperature"]
+        return data
 
     @field_validator("timestamp", mode="before")
     @classmethod
