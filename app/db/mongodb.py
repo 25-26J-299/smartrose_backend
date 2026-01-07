@@ -40,8 +40,17 @@ async def init_db() -> None:
             "MongoDB ping succeeded", extra={"mongo_uri": settings.mongo_uri}
         )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("MongoDB ping failed during startup")
-        raise exc
+        error_msg = (
+            f"MongoDB connection failed: {settings.mongo_uri}\n"
+            f"Error: {type(exc).__name__}: {str(exc)}\n\n"
+            "To start MongoDB:\n"
+            "  - Using Homebrew: brew services start mongodb-community\n"
+            "  - Using Docker: cd docker && docker-compose up -d mongo\n"
+            "  - Directly: mongod --dbpath /path/to/data\n"
+            "  - Or use MongoDB Atlas cloud connection string in MONGO_URI"
+        )
+        logger.error(error_msg)
+        raise ConnectionError(error_msg) from exc
 
 
 async def close_db() -> None:

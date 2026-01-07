@@ -1,11 +1,16 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class EDASSensorData(BaseModel):
-
+    """Schema for EDAS sensor data input from IoT devices.
+    
+    This model represents the raw sensor readings from the IoT system.
+    Time-based fields (hour, is_day, time_period) are automatically calculated
+    by the backend and should NOT be sent from Arduino/ESP32.
+    """
 
     device_id: str = Field(
         ..., 
@@ -37,6 +42,24 @@ class EDASSensorData(BaseModel):
     timestamp: Optional[datetime] = Field(
         None,
         description="Reading timestamp (auto-set by backend if not provided)",
+    )
+    
+    # ============================================================================
+    # ML Time-Based Features (Auto-calculated by backend, DO NOT send from IoT)
+    # ============================================================================
+    hour: Optional[int] = Field(
+        None,
+        ge=0,
+        le=23,
+        description="Hour of day extracted from timestamp (0-23) - Auto-calculated for ML",
+    )
+    is_day: Optional[bool] = Field(
+        None,
+        description="Day/night indicator: True if 06:00-18:00, False otherwise - Auto-calculated for ML",
+    )
+    time_period: Optional[Literal["morning", "noon", "evening", "night"]] = Field(
+        None,
+        description="Time period classification for ML patterns - Auto-calculated for ML",
     )
 
     @field_validator("timestamp", mode="before")
@@ -81,7 +104,12 @@ class EDASSensorDataInDB(EDASSensorData):
 
 
 class EDASSensorDataUpdate(BaseModel):
-
+    """Schema for updating EDAS sensor data (all fields optional).
+    
+    This model is used for partial updates to existing sensor readings.
+    In practice, sensor data is typically immutable, but this is provided
+    for administrative corrections if needed.
+    """
 
     device_id: Optional[str] = None
     plant_temperature: Optional[float] = None
@@ -89,10 +117,16 @@ class EDASSensorDataUpdate(BaseModel):
     humidity: Optional[float] = None
     temperature_difference: Optional[float] = None
     timestamp: Optional[datetime] = None
+    hour: Optional[int] = None
+    is_day: Optional[bool] = None
+    time_period: Optional[Literal["morning", "noon", "evening", "night"]] = None
 
 
 class EDASSensorDataResponse(BaseModel):
-
+    """Schema for EDAS sensor data API responses.
+    
+    This model includes all fields including ML time-based features.
+    """
 
     id: Optional[str] = Field(None, alias="_id")
     device_id: str
@@ -101,6 +135,9 @@ class EDASSensorDataResponse(BaseModel):
     humidity: float
     temperature_difference: float
     timestamp: datetime
+    hour: int
+    is_day: bool
+    time_period: Literal["morning", "noon", "evening", "night"]
 
     class Config:
         populate_by_name = True
