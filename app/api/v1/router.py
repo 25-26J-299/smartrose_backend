@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    admin,
     auth,
     edas_data,
     edas_websocket,
@@ -18,6 +19,7 @@ from app.core.config import settings
 # Prefix routes with the configured API version (e.g., /api/v1)
 api_router = APIRouter(prefix=f"/{settings.api_version}")
 
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(
     eosm_sensor_data.router, prefix="/eosm-data", tags=["sensor-data"]
 )

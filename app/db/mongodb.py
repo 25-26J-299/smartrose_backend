@@ -34,11 +34,14 @@ def get_database() -> AsyncIOMotorDatabase:
 async def init_db() -> None:
     """Initialize the client and validate connectivity with a ping."""
     client = get_client()
+    db = get_database()
     try:
         await client.admin.command({"ping": 1})
         logger.info(
             "MongoDB ping succeeded", extra={"mongo_uri": settings.mongo_uri}
         )
+        # Ensure unique index on users.email
+        await db.users.create_index("email", unique=True)
     except Exception as exc:  # noqa: BLE001
         error_msg = (
             f"MongoDB connection failed: {settings.mongo_uri}\n"

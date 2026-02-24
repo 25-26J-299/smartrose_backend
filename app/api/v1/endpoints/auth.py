@@ -6,7 +6,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.collections import users as user_repo
 from app.db.mongodb import get_db
-from app.models.user_models import RoleUpdate, UserCreate, UserLogin, UserPublic
+from app.models.user_models import (
+    RoleUpdateLegacy,
+    UserCreate,
+    UserLogin,
+    UserPublic,
+)
 from app.services.auth_service import (
     create_jwt,
     decode_jwt,
@@ -21,7 +26,13 @@ ALLOWED_ROLES = {"farmer", "florist"}
 
 def _public_user(document: dict) -> dict:
     """Convert a stored user document to a public schema."""
-    return UserPublic(**document).model_dump(by_alias=True)
+    # Handle both new (full_name, role) and legacy (name, roles) schemas
+    doc = dict(document)
+    doc.setdefault("full_name", doc.get("name", ""))
+    doc.setdefault("role", (doc.get("roles") or ["farmer"])[0])
+    doc.setdefault("status", "pending")
+    doc.setdefault("is_active", True)
+    return UserPublic(**doc).model_dump(by_alias=True)
 
 
 async def _get_current_user(
@@ -57,7 +68,7 @@ async def _get_current_user(
 async def register_user(
     payload: UserCreate, db: AsyncIOMotorDatabase = Depends(get_db)
 ) -> dict:
-    """Create a new user account with hashed password."""
+    """Create a new user account. New users get status=pending and must be approved before login."""
     existing = await user_repo.get_user_by_email(db, payload.email)
     if existing:
         raise HTTPException(
@@ -68,13 +79,14 @@ async def register_user(
     user_dict = payload.model_dump()
     user_dict["email"] = user_dict["email"].lower()
     user_dict["password_hash"] = hash_password(user_dict.pop("password"))
-    user_dict["roles"] = []
-
+    user_dict["status"] = "pending"
+    user_dict["is_active"] = True
+    # Remove role from dict if storing separately; we store role
     created = await user_repo.create_user(db, user_dict)
-    token = create_jwt(created["_id"], created["email"], created["roles"])
+
+    # No token for pending users - they must be approved first
     return {
-        "access_token": token,
-        "token_type": "bearer",
+        "message": "Registration successful. Your account is pending approval.",
         "user": _public_user(created),
     }
 
@@ -83,7 +95,7 @@ async def register_user(
 async def login_user(
     payload: UserLogin, db: AsyncIOMotorDatabase = Depends(get_db)
 ) -> dict:
-    """Validate credentials and return a JWT."""
+    """Validate credentials and return a JWT. Only approved and active users can log in."""
     user = await user_repo.verify_user_credentials(db, payload.email)
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(
@@ -91,7 +103,27 @@ async def login_user(
             detail="Invalid email or password",
         )
 
-    token = create_jwt(user["_id"], user["email"], user.get("roles", []))
+    # Admin can always log in regardless of status
+    role = user.get("role") or (user.get("roles") or ["farmer"])[0]
+    if role != "admin":
+        if user.get("status") != "approved":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your account is pending approval. Please contact an administrator.",
+            )
+        if not user.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your account has been deactivated.",
+            )
+
+    await user_repo.update_last_login(db, user["_id"])
+
+    token = create_jwt(
+        user["_id"],
+        user["email"],
+        role=role,
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -107,13 +139,13 @@ async def get_me(current_user: dict = Depends(_get_current_user)) -> dict:
 
 @router.patch("/update-roles", summary="Update roles for the authenticated user")
 async def update_roles(
-    payload: RoleUpdate,
+    payload: RoleUpdateLegacy,
     current_user: dict = Depends(_get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> dict:
-    """Update the roles for the logged-in user."""
-    normalized_roles = [role.lower() for role in payload.roles]
-    invalid = [role for role in normalized_roles if role not in ALLOWED_ROLES]
+    """Update the roles for the logged-in user (legacy endpoint)."""
+    normalized_roles = [r.lower() for r in payload.roles]
+    invalid = [r for r in normalized_roles if r not in ALLOWED_ROLES]
     if invalid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -123,12 +155,10 @@ async def update_roles(
     updated_user = await user_repo.update_roles(
         db, current_user["_id"], normalized_roles
     )
-    token = create_jwt(
-        updated_user["_id"], updated_user["email"], updated_user.get("roles", [])
-    )
+    role = updated_user.get("role") or normalized_roles[0]
+    token = create_jwt(updated_user["_id"], updated_user["email"], role=role)
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": _public_user(updated_user),
     }
-

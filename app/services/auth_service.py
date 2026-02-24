@@ -25,15 +25,20 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_jwt(
-    subject: str, email: str, roles: Optional[list[str]] = None
+    subject: str,
+    email: str,
+    roles: Optional[list[str]] = None,
+    role: Optional[str] = None,
 ) -> str:
     """Create a signed JWT for the given subject/email."""
     expire_minutes = getattr(settings, "jwt_expire_minutes", 60)
     expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
+    roles_list = roles if roles is not None else ([role] if role else [])
     to_encode: Dict[str, Any] = {
         "sub": subject,
         "email": email,
-        "roles": roles or [],
+        "roles": roles_list,
+        "role": role or (roles_list[0] if roles_list else None),
         "exp": expire,
     }
     return jwt.encode(
