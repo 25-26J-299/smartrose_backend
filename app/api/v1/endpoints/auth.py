@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.db.collections import locations as location_repo
 from app.db.collections import users as user_repo
 from app.db.mongodb import get_db
 from app.models.user_models import (
@@ -64,11 +65,11 @@ async def _get_current_user(
     return user
 
 
-@router.post("/register", summary="Register a new user")
+@router.post("/register", summary="Register a new user with location")
 async def register_user(
     payload: UserCreate, db: AsyncIOMotorDatabase = Depends(get_db)
 ) -> dict:
-    """Create a new user account. New users get status=pending and must be approved before login."""
+    """Create user and location. User gets status=pending. Admin must approve user before login."""
     existing = await user_repo.get_user_by_email(db, payload.email)
     if existing:
         raise HTTPException(
@@ -76,18 +77,25 @@ async def register_user(
             detail="Email already registered",
         )
 
-    user_dict = payload.model_dump()
+    user_dict = payload.model_dump(exclude={"location"})
     user_dict["email"] = user_dict["email"].lower()
     user_dict["password_hash"] = hash_password(user_dict.pop("password"))
     user_dict["status"] = "pending"
     user_dict["is_active"] = True
-    # Remove role from dict if storing separately; we store role
-    created = await user_repo.create_user(db, user_dict)
+    created_user = await user_repo.create_user(db, user_dict)
 
-    # No token for pending users - they must be approved first
+    loc = payload.location
+    await location_repo.create_location(
+        db,
+        user_id=created_user["_id"],
+        name=loc.name,
+        location_type=loc.type,
+        address=loc.address,
+    )
+
     return {
-        "message": "Registration successful. Your account is pending approval.",
-        "user": _public_user(created),
+        "message": "Registration successful. Your account and location are pending approval.",
+        "user": _public_user(created_user),
     }
 
 

@@ -26,6 +26,17 @@ def _normalize_user(document: Optional[dict]) -> Optional[dict]:
     return document
 
 
+async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: str) -> Optional[dict]:
+    """Return a single user by ID, if it exists."""
+    if not ObjectId.is_valid(user_id):
+        return None
+    user = await db[COLLECTION_NAME].find_one(
+        {"_id": ObjectId(user_id)},
+        {"password_hash": 0},
+    )
+    return _normalize_user(user)
+
+
 async def get_user_by_email(db: AsyncIOMotorDatabase, email: str) -> Optional[dict]:
     """Return a single user by email, if it exists."""
     user = await db[COLLECTION_NAME].find_one({"email": email.lower()})
@@ -81,6 +92,31 @@ async def update_role(
     return _normalize_user(updated)
 
 
+async def update_user(
+    db: AsyncIOMotorDatabase,
+    user_id: str,
+    *,
+    full_name: Optional[str] = None,
+    phone: Optional[str] = None,
+    role: Optional[str] = None,
+) -> Optional[dict]:
+    """Update user fields and return the updated document."""
+    if not ObjectId.is_valid(user_id):
+        return None
+    updates: dict = {"updated_at": datetime.utcnow()}
+    if full_name is not None:
+        updates["full_name"] = full_name
+    if phone is not None:
+        updates["phone"] = phone
+    if role is not None:
+        updates["role"] = role
+    await db[COLLECTION_NAME].update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": updates},
+    )
+    return await get_user_by_id(db, user_id)
+
+
 async def update_status(
     db: AsyncIOMotorDatabase, user_id: str, status: str
 ) -> Optional[dict]:
@@ -107,10 +143,16 @@ async def update_last_login(
     )
 
 
-async def get_all_users(db: AsyncIOMotorDatabase) -> list[dict]:
-    """Return all users, sorted by created_at descending. Excludes password_hash in projection."""
+async def get_all_users(
+    db: AsyncIOMotorDatabase, status_filter: Optional[str] = None
+) -> list[dict]:
+    """Return all users, sorted by created_at descending. Excludes password_hash.
+    If status_filter is provided (approved|pending|rejected), filter by status."""
+    query: dict = {}
+    if status_filter in ("approved", "pending", "rejected"):
+        query["status"] = status_filter
     cursor = db[COLLECTION_NAME].find(
-        {},
+        query,
         {"password_hash": 0},
     ).sort("created_at", -1)
     users = []
