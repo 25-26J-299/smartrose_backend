@@ -9,6 +9,22 @@ ALLOWED_ROLES = {"admin", "farmer", "florist"}
 ALLOWED_STATUSES = {"pending", "approved", "rejected"}
 
 
+class LocationCreate(BaseModel):
+    """Location details for registration (greenhouse or flower shop)."""
+
+    name: str = Field(..., min_length=1, description="Location name")
+    type: str = Field(..., description="greenhouse | flower_shop")
+    address: str = Field(..., min_length=1, description="Address")
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        t = v.lower()
+        if t not in {"greenhouse", "flower_shop"}:
+            raise ValueError("type must be greenhouse or flower_shop")
+        return t
+
+
 class UserCreate(BaseModel):
     """Payload for registering a new user."""
 
@@ -17,6 +33,10 @@ class UserCreate(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=32)
     password: str = Field(..., min_length=6, max_length=72)
     role: str = Field(..., description="farmer | florist")
+    location: LocationCreate = Field(
+        ...,
+        description="Location (greenhouse/flower shop) - required for registration",
+    )
 
     @field_validator("email")
     @classmethod
@@ -94,6 +114,42 @@ class RoleUpdate(BaseModel):
         if r not in ALLOWED_ROLES:
             raise ValueError("role must be admin, farmer, or florist")
         return r
+
+
+class UserUpdate(BaseModel):
+    """Payload for updating user (admin). Partial update - only provided fields are updated."""
+
+    full_name: Optional[str] = Field(None, min_length=1)
+    phone: Optional[str] = Field(None, max_length=32)
+    role: Optional[str] = Field(None, description="admin | farmer | florist")
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        r = v.lower()
+        if r not in ALLOWED_ROLES:
+            raise ValueError("role must be admin, farmer, or florist")
+        return r
+
+
+class LocationUpdate(BaseModel):
+    """Payload for updating location (admin). Partial update."""
+
+    name: Optional[str] = Field(None, min_length=1)
+    type: Optional[str] = Field(None, description="greenhouse | flower_shop")
+    address: Optional[str] = Field(None, min_length=1)
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        t = v.lower()
+        if t not in {"greenhouse", "flower_shop"}:
+            raise ValueError("type must be greenhouse or flower_shop")
+        return t
 
 
 class StatusUpdate(BaseModel):
