@@ -24,13 +24,14 @@ app = FastAPI(
     description="API gateway for SMARTROSE data ingestion and predictions.",
 )
 
-# Allow cross-origin requests while prototyping; tighten for production
+# CORS: allow all origins for dev. Use credentials=False so "*" works (admin uses Bearer token, not cookies).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -85,7 +86,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     """Catch-all logger for unexpected errors to satisfy request error logging."""
     logger.exception(
         "Unhandled server error",
-        extra={"path": request.url.path},
+        extra={"path": request.url.path, "error": str(exc)},
     )
     return JSONResponse(
         status_code=500,

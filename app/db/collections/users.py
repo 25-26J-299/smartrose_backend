@@ -143,6 +143,56 @@ async def update_last_login(
     )
 
 
+async def search_approved_users(
+    db: AsyncIOMotorDatabase, query: str
+) -> list[dict]:
+    """Search approved users by email, phone, or full_name. Returns users with password_hash excluded."""
+    if not query or len(query.strip()) < 2:
+        return []
+    q = query.strip().lower()
+    regex = {"$regex": q, "$options": "i"}
+    cursor = db[COLLECTION_NAME].find(
+        {
+            "status": "approved",
+            "is_active": True,
+            "$or": [
+                {"email": regex},
+                {"phone": regex},
+                {"full_name": regex},
+                {"name": regex},
+            ],
+        },
+        {"password_hash": 0},
+    ).sort("created_at", -1)
+    users = []
+    async for doc in cursor:
+        normalized = _normalize_user(doc)
+        if normalized:
+            users.append(normalized)
+    return users
+
+
+async def get_users_by_ids(
+    db: AsyncIOMotorDatabase, user_ids: list[str]
+) -> list[dict]:
+    """Return approved users by IDs."""
+    if not user_ids:
+        return []
+    ids = [ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)]
+    if not ids:
+        return []
+    cursor = db[COLLECTION_NAME].find(
+        {"_id": {"$in": ids}, "status": "approved"},
+        {"password_hash": 0},
+    ).sort("created_at", -1)
+    users = []
+    async for doc in cursor:
+        normalized = _normalize_user(doc)
+        if normalized:
+            users.append(normalized)
+    return users
+
+
 async def get_all_users(
     db: AsyncIOMotorDatabase, status_filter: Optional[str] = None
 ) -> list[dict]:
