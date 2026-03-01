@@ -9,6 +9,7 @@ import logging
 from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from pymongo.errors import OperationFailure
 
 from app.core.config import settings
 
@@ -31,6 +32,17 @@ def get_database() -> AsyncIOMotorDatabase:
     return get_client()[settings.mongo_db]
 
 
+async def _ensure_index(db, collection: str, keys: list, **kwargs) -> None:
+    """Create index if it doesn't exist. Ignore conflict if index already exists."""
+    try:
+        await db[collection].create_index(keys, **kwargs)
+    except OperationFailure as e:
+        if e.code == 86:  # IndexKeySpecsConflict - index exists with different options
+            logger.info("Index already exists on %s: %s", collection, keys)
+        else:
+            raise
+
+
 async def init_db() -> None:
     """Initialize the client and validate connectivity with a ping."""
     client = get_client()
@@ -40,8 +52,10 @@ async def init_db() -> None:
         logger.info(
             "MongoDB ping succeeded", extra={"mongo_uri": settings.mongo_uri}
         )
-        # Ensure unique index on users.email
-        await db.users.create_index("email", unique=True)
+        # Ensure unique indexes (ignore if already exist with different options)
+        await _ensure_index(db, "users", [("email", 1)], unique=True)
+        await _ensure_index(db, "devices", [("device_serial_number", 1)], unique=True)
+        await _ensure_index(db, "devices", [("device_id", 1)], unique=True)
     except Exception as exc:  # noqa: BLE001
         error_msg = (
             f"MongoDB connection failed: {settings.mongo_uri}\n"

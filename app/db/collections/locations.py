@@ -41,6 +41,17 @@ async def create_location(
     return _normalize_location(doc) or doc
 
 
+async def search_locations_by_name(
+    db: AsyncIOMotorDatabase, query: str
+) -> list[dict]:
+    """Search locations by name. Returns locations matching the query."""
+    if not query or len(query.strip()) < 2:
+        return []
+    regex = {"$regex": query.strip(), "$options": "i"}
+    cursor = db[COLLECTION_NAME].find({"name": regex}).sort("created_at", -1)
+    return [_normalize_location(doc) async for doc in cursor if _normalize_location(doc)]
+
+
 async def get_locations_by_user(
     db: AsyncIOMotorDatabase, user_id: str
 ) -> list[dict]:
