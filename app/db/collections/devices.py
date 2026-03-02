@@ -28,9 +28,7 @@ async def create_device(
 ) -> dict:
     """Insert a new device and return the stored document."""
     now = datetime.utcnow()
-    # device_id: used by unique index and by ESP32/FM when posting sensor data
     doc = {
-        "device_id": device_serial_number,
         "location_id": location_id,
         "user_id": user_id,
         "name": name,

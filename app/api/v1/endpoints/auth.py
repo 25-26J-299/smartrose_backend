@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.db.collections import devices as device_repo
 from app.db.collections import locations as location_repo
 from app.db.collections import users as user_repo
 from app.db.mongodb import get_db
@@ -143,6 +144,25 @@ async def login_user(
 async def get_me(current_user: dict = Depends(_get_current_user)) -> dict:
     """Return the authenticated user's profile."""
     return {"user": _public_user(current_user)}
+
+
+@router.get("/my-fm-devices", summary="Get current user's FM devices grouped by location")
+async def get_my_fm_devices(
+    current_user: dict = Depends(_get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    """Return all locations for the logged-in user, each with their FM devices."""
+    user_id = current_user["_id"]
+    locations = await location_repo.get_locations_by_user(db, user_id)
+    result = []
+    for loc in locations:
+        devices = await device_repo.get_devices_by_location(db, loc["_id"])
+        fm_devices = [d for d in devices if d.get("type") == "FM"]
+        result.append({
+            "location": loc,
+            "devices": fm_devices,
+        })
+    return {"locations": result}
 
 
 @router.patch("/update-roles", summary="Update roles for the authenticated user")
