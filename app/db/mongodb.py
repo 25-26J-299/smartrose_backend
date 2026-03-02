@@ -52,10 +52,20 @@ async def init_db() -> None:
         logger.info(
             "MongoDB ping succeeded", extra={"mongo_uri": settings.mongo_uri}
         )
+        # Drop stale device_id_1 index (leftover from old schema — device_serial_number is used instead)
+        try:
+            await db["devices"].drop_index("device_id_1")
+            logger.info("Dropped stale index device_id_1 from devices collection")
+        except Exception:
+            pass  # Index doesn't exist, nothing to do
+
         # Ensure unique indexes (ignore if already exist with different options)
         await _ensure_index(db, "users", [("email", 1)], unique=True)
         await _ensure_index(db, "devices", [("device_serial_number", 1)], unique=True)
-        await _ensure_index(db, "devices", [("device_id", 1)], unique=True)
+        # Non-unique indexes for fast per-device queries on sensor collections
+        await _ensure_index(db, "fm_sensor_data", [("device_id", 1), ("timestamp", -1)])
+        await _ensure_index(db, "inm_sensor_data", [("device_id", 1)])
+        await _ensure_index(db, "edas_sensor_data", [("device_id", 1)])
     except Exception as exc:  # noqa: BLE001
         error_msg = (
             f"MongoDB connection failed: {settings.mongo_uri}\n"
