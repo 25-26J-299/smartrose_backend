@@ -1,9 +1,12 @@
-"""Authentication endpoints for user registration, login, and profile."""
+"""Authentication endpoints for user registration, login, profile, and
+user-facing location / device discovery.
+"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.api.deps import get_current_user
 from app.db.collections import devices as device_repo
 from app.db.collections import locations as location_repo
 from app.db.collections import users as user_repo
@@ -189,4 +192,55 @@ async def update_roles(
         "access_token": token,
         "token_type": "bearer",
         "user": _public_user(updated_user),
+    }
+
+
+# ---------------------------------------------------------------------------
+# User-facing location + device discovery (multi-greenhouse support)
+# ---------------------------------------------------------------------------
+
+@router.get("/my-locations", summary="Get the logged-in user's greenhouses")
+async def get_my_locations(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    """Return all locations (greenhouses / flower shops) that belong to the
+    logged-in user.  The frontend uses this to populate the greenhouse selector
+    after login.
+    """
+    locations = await location_repo.get_locations_by_user(db, current_user["_id"])
+    return {
+        "user_id": current_user["_id"],
+        "locations": locations,
+    }
+
+
+@router.get("/my-devices", summary="Get the logged-in user's assigned devices")
+async def get_my_devices(
+    location_id: str | None = Query(None, description="Filter by greenhouse (location_id)"),
+    device_type: str | None = Query(None, description="Filter by device type: INM | EOSM | EDAS | FM"),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    """Return all devices assigned to the logged-in user.
+
+    Optional filters:
+    - location_id : only devices in a specific greenhouse
+    - device_type : only devices of a specific type (e.g. INM)
+
+    The frontend uses this to populate the device selector for each module
+    after the user picks a greenhouse.
+    """
+    devices = await device_repo.get_all_devices(
+        db,
+        user_id=current_user["_id"],
+        location_id=location_id or None,
+    )
+    if device_type:
+        devices = [d for d in devices if d.get("type", "").upper() == device_type.upper()]
+    return {
+        "user_id": current_user["_id"],
+        "location_id": location_id,
+        "device_type": device_type,
+        "devices": devices,
     }

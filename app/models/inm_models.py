@@ -63,4 +63,9 @@ class GrowthStageUpdateRequest(BaseModel):
         alias="growthStage",
         description="Current growth stage context set by farmer",
     )
+    device_id: str = Field(
+        ...,
+        alias="deviceId",
+        description="Device ID this growth stage applies to",
+    )
 
