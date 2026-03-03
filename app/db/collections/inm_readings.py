@@ -144,3 +144,70 @@ async def delete_inm_reading(db: AsyncIOMotorDatabase, reading_id: str) -> bool:
         )
         raise
 
+
+# -----------------------------------------------------------------------------
+# Device-scoped query helpers (multi-user / multi-greenhouse)
+# -----------------------------------------------------------------------------
+
+
+def _serialize_timestamp(doc: dict) -> dict:
+    """Ensure timestamp is a consistent UTC ISO string."""
+    if "timestamp" in doc and doc["timestamp"]:
+        if isinstance(doc["timestamp"], datetime):
+            doc["timestamp"] = doc["timestamp"].strftime("%Y-%m-%dT%H:%M:%SZ")
+        elif isinstance(doc["timestamp"], str):
+            ts = doc["timestamp"]
+            if not ts.endswith("Z") and "T" in ts and "+" not in ts and "-" not in ts[-6:]:
+                doc["timestamp"] = ts + "Z"
+    return doc
+
+
+async def get_inm_readings_by_device(
+    db: AsyncIOMotorDatabase,
+    device_id: str,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[dict]:
+    """Return INM sensor readings for a specific device, newest first."""
+    try:
+        cursor = (
+            db[INM_COLLECTION_NAME]
+            .find({"device_id": device_id})
+            .sort("timestamp", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        readings = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            readings.append(_serialize_timestamp(doc))
+        return readings
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to fetch INM readings by device",
+            extra={"collection": INM_COLLECTION_NAME, "device_id": device_id},
+        )
+        raise
+
+
+async def get_latest_inm_reading_by_device(
+    db: AsyncIOMotorDatabase,
+    device_id: str,
+) -> Optional[dict]:
+    """Return the single most recent INM sensor reading for a specific device."""
+    try:
+        doc = await db[INM_COLLECTION_NAME].find_one(
+            {"device_id": device_id},
+            sort=[("timestamp", -1)],
+        )
+        if doc:
+            doc["_id"] = str(doc["_id"])
+            _serialize_timestamp(doc)
+        return doc
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to fetch latest INM reading by device",
+            extra={"collection": INM_COLLECTION_NAME, "device_id": device_id},
+        )
+        raise
+

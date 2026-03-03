@@ -43,3 +43,22 @@ async def get_recent_inm_predictions(db: AsyncIOMotorDatabase, limit: int = 50) 
         _serialize_timestamp(doc)
     return docs
 
+
+async def get_inm_predictions_by_device(
+    db: AsyncIOMotorDatabase,
+    device_id: str,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Return latest INM predictions for a specific device, sorted by timestamp desc."""
+    cursor = (
+        db[COLLECTION_NAME]
+        .find({"device_id": device_id})
+        .sort([("timestamp", -1), ("_id", -1)])
+        .limit(max(1, limit))
+    )
+    docs = await cursor.to_list(length=limit)
+    for doc in docs:
+        doc["_id"] = str(doc.get("_id"))
+        _serialize_timestamp(doc)
+    return docs
+
