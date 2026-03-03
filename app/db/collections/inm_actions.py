@@ -28,13 +28,23 @@ async def create_inm_action(
     recommendation_text: str,
     growth_stage: str,
     action_taken: str,
+    device_id: str = "",
+    location_id: str = "",
+    user_id: str = "",
 ) -> dict:
-    """Insert a new inm_actions document and return it (excluding _id)."""
+    """Insert a new inm_actions document and return it (excluding _id).
+
+    device_id, location_id, and user_id are stored so action history can be
+    scoped per device / greenhouse / user in a multi-tenant setup.
+    """
     payload = {
         "timestamp": datetime.utcnow(),
         "recommendation_text": recommendation_text,
         "growth_stage": growth_stage,
         "action_taken": action_taken,
+        "device_id": device_id,
+        "location_id": location_id,
+        "user_id": user_id,
     }
     result = await db[COLLECTION_NAME].insert_one(payload)
     logger.info(
@@ -42,9 +52,9 @@ async def create_inm_action(
         extra={
             "collection": COLLECTION_NAME,
             "id": str(result.inserted_id),
+            "device_id": device_id,
             "growth_stage": growth_stage,
             "action_taken": action_taken,
-            "timestamp": payload.get("timestamp"),
         },
     )
     payload.pop("_id", None)
@@ -60,6 +70,28 @@ async def get_inm_action_history(db: AsyncIOMotorDatabase, limit: int = 50) -> l
     logger.info(
         "INM action history fetched",
         extra={"collection": COLLECTION_NAME, "limit": limit, "count": len(actions)},
+    )
+    return actions
+
+
+async def get_inm_action_history_by_device(
+    db: AsyncIOMotorDatabase,
+    device_id: str,
+    limit: int = 50,
+) -> list[dict]:
+    """Return latest actions for a specific device, sorted by timestamp descending."""
+    cursor = (
+        db[COLLECTION_NAME]
+        .find({"device_id": device_id}, {"_id": 0})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+    actions: list[dict] = []
+    async for doc in cursor:
+        actions.append(_serialize_timestamp(doc))
+    logger.info(
+        "INM action history fetched by device",
+        extra={"collection": COLLECTION_NAME, "device_id": device_id, "count": len(actions)},
     )
     return actions
 
