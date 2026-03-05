@@ -31,11 +31,19 @@ async def create_inm_action(
     device_id: str = "",
     location_id: str = "",
     user_id: str = "",
+    # Weather context – all optional so older call-sites are unaffected
+    weather_condition: str | None = None,
+    weather_temperature_c: float | None = None,
+    weather_humidity_pct: float | None = None,
+    weather_precipitation_mm: float | None = None,
+    weather_advisory: str | None = None,
 ) -> dict:
     """Insert a new inm_actions document and return it (excluding _id).
 
-    device_id, location_id, and user_id are stored so action history can be
-    scoped per device / greenhouse / user in a multi-tenant setup.
+    device_id, location_id, and user_id scope history per device / greenhouse /
+    user in a multi-tenant setup. Weather fields record the environmental
+    context at the moment the farmer made the apply/skip decision so the history
+    view and future analytics can show why an application was postponed.
     """
     payload = {
         "timestamp": datetime.utcnow(),
@@ -45,6 +53,12 @@ async def create_inm_action(
         "device_id": device_id,
         "location_id": location_id,
         "user_id": user_id,
+        # Store weather context when available
+        "weather_condition": weather_condition,
+        "weather_temperature_c": weather_temperature_c,
+        "weather_humidity_pct": weather_humidity_pct,
+        "weather_precipitation_mm": weather_precipitation_mm,
+        "weather_advisory": weather_advisory,
     }
     result = await db[COLLECTION_NAME].insert_one(payload)
     logger.info(
@@ -55,6 +69,7 @@ async def create_inm_action(
             "device_id": device_id,
             "growth_stage": growth_stage,
             "action_taken": action_taken,
+            "weather_advisory": weather_advisory,
         },
     )
     payload.pop("_id", None)
