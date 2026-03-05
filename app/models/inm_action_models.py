@@ -14,6 +14,14 @@ class INMActionCreate(BaseModel):
     action_taken: Literal["applied", "ignored"] = Field(
         ..., description="Farmer feedback on whether the recommendation was applied or ignored"
     )
+    # Optional structured recommendation fields.
+    # Kept optional for backward compatibility with older clients that only send
+    # recommendation_text.
+    ec_action: Optional[str] = Field(None, description="Structured EC action text")
+    ph_action: Optional[str] = Field(None, description="Structured pH action text")
+    npk_recommendation: Optional[str] = Field(
+        None, description="Structured NPK recommendation text"
+    )
 
     # Weather context at the moment the farmer made the decision.
     # All fields are optional so existing clients are not broken.
