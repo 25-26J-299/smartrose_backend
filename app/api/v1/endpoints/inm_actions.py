@@ -60,6 +60,11 @@ async def log_inm_action(
         device_id=payload.device_id,
         location_id=device.get("location_id", ""),
         user_id=current_user["_id"],
+        weather_condition=payload.weather_condition,
+        weather_temperature_c=payload.weather_temperature_c,
+        weather_humidity_pct=payload.weather_humidity_pct,
+        weather_precipitation_mm=payload.weather_precipitation_mm,
+        weather_advisory=payload.weather_advisory,
     )
     return {"status": "ok", "message": "Action logged successfully", "data": doc}
 
