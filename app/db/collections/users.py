@@ -99,6 +99,7 @@ async def update_user(
     full_name: Optional[str] = None,
     phone: Optional[str] = None,
     role: Optional[str] = None,
+    is_active: Optional[bool] = None,
 ) -> Optional[dict]:
     """Update user fields and return the updated document."""
     if not ObjectId.is_valid(user_id):
@@ -110,6 +111,8 @@ async def update_user(
         updates["phone"] = phone
     if role is not None:
         updates["role"] = role
+    if is_active is not None:
+        updates["is_active"] = is_active
     await db[COLLECTION_NAME].update_one(
         {"_id": ObjectId(user_id)},
         {"$set": updates},
@@ -211,3 +214,11 @@ async def get_all_users(
         if normalized:
             users.append(normalized)
     return users
+
+
+async def delete_user(db: AsyncIOMotorDatabase, user_id: str) -> bool:
+    """Delete a user by ID."""
+    if not ObjectId.is_valid(user_id):
+        return False
+    result = await db[COLLECTION_NAME].delete_one({"_id": ObjectId(user_id)})
+    return result.deleted_count > 0

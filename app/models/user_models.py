@@ -97,6 +97,7 @@ class UserPublic(BaseModel):
     updated_at: Optional[datetime] = None
     last_login: Optional[datetime] = None
     is_active: bool
+    greenhouse_count: int = 0
 
     class Config:
         populate_by_name = True
@@ -122,6 +123,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1)
     phone: Optional[str] = Field(None, max_length=32)
     role: Optional[str] = Field(None, description="admin | farmer | florist")
+    is_active: Optional[bool] = None
 
     @field_validator("role")
     @classmethod
@@ -140,12 +142,30 @@ class LocationUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1)
     type: Optional[str] = Field(None, description="greenhouse | flower_shop")
     address: Optional[str] = Field(None, min_length=1)
+    is_active: Optional[bool] = None
 
     @field_validator("type")
     @classmethod
     def validate_type(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None
+        t = v.lower()
+        if t not in {"greenhouse", "flower_shop"}:
+            raise ValueError("type must be greenhouse or flower_shop")
+        return t
+
+
+class AdminLocationCreate(BaseModel):
+    """Payload for creating a location from admin panel."""
+
+    user_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    type: str = Field(..., description="greenhouse | flower_shop")
+    address: str = Field(..., min_length=1)
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
         t = v.lower()
         if t not in {"greenhouse", "flower_shop"}:
             raise ValueError("type must be greenhouse or flower_shop")
