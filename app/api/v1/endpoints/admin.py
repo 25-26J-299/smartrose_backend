@@ -10,6 +10,7 @@ from app.db.collections import users as user_repo
 from app.db.mongodb import get_db
 from app.models.device_models import DeviceCreate, DeviceUpdate
 from app.models.user_models import (
+    AdminLocationCreate,
     LocationUpdate,
     RoleUpdate,
     StatusUpdate,
@@ -109,6 +110,10 @@ async def list_users(
 ) -> dict:
     """Return all users. Excludes password_hash. Optional status filter."""
     users = await user_repo.get_all_users(db, status_filter=status)
+    user_ids = [u["_id"] for u in users]
+    location_counts = await location_repo.count_locations_by_user_ids(db, user_ids)
+    for user in users:
+        user["greenhouse_count"] = location_counts.get(user["_id"], 0)
     return {"users": [_public_user(u) for u in users]}
 
 
@@ -155,6 +160,7 @@ async def update_user(
         full_name=updates.get("full_name"),
         phone=updates.get("phone"),
         role=updates.get("role"),
+        is_active=updates.get("is_active"),
     )
     if not updated:
         raise HTTPException(
@@ -162,6 +168,51 @@ async def update_user(
             detail="User not found",
         )
     return {"user": _public_user(updated)}
+
+
+@router.delete("/users/{user_id}", summary="Delete user (admin)")
+async def delete_user(
+    user_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Delete a user and related locations/devices."""
+    user = await user_repo.get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    if user["_id"] == _admin["_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account",
+        )
+
+    locations = await location_repo.get_locations_by_user(db, user_id)
+    location_ids = [loc["_id"] for loc in locations]
+
+    deleted_devices_by_location = await device_repo.delete_devices_by_locations(
+        db, location_ids
+    )
+    deleted_devices_by_user = await device_repo.delete_devices_by_user(db, user_id)
+    deleted_locations = await location_repo.delete_locations_by_user(db, user_id)
+    deleted_user = await user_repo.delete_user(db, user_id)
+
+    if not deleted_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    return {
+        "message": "User deleted successfully",
+        "deleted": {
+            "user_id": user_id,
+            "locations": deleted_locations,
+            "devices": deleted_devices_by_location + deleted_devices_by_user,
+        },
+    }
 
 
 @router.patch("/users/{user_id}/role", summary="Update user role (admin)")
@@ -208,6 +259,29 @@ async def list_locations(
     return {"locations": locations}
 
 
+@router.post("/locations", summary="Create location (admin)")
+async def create_location(
+    payload: AdminLocationCreate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Create a location and assign it to an existing user."""
+    user = await user_repo.get_user_by_id(db, payload.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    location = await location_repo.create_location(
+        db,
+        user_id=payload.user_id,
+        name=payload.name,
+        location_type=payload.type,  # type: ignore[arg-type]
+        address=payload.address,
+    )
+    return {"location": location}
+
+
 @router.patch("/locations/{location_id}", summary="Update location (admin)")
 async def update_location(
     location_id: str,
@@ -231,6 +305,7 @@ async def update_location(
         name=updates.get("name"),
         location_type=updates.get("type"),
         address=updates.get("address"),
+        is_active=updates.get("is_active"),
     )
     if not updated:
         raise HTTPException(
@@ -238,6 +313,37 @@ async def update_location(
             detail="Location not found",
         )
     return {"location": updated}
+
+
+@router.delete("/locations/{location_id}", summary="Delete location (admin)")
+async def delete_location(
+    location_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Delete a location and devices assigned to it."""
+    location = await location_repo.get_location_by_id(db, location_id)
+    if not location:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Location not found",
+        )
+
+    deleted_devices = await device_repo.delete_devices_by_locations(db, [location_id])
+    deleted_location = await location_repo.delete_location(db, location_id)
+    if not deleted_location:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Location not found",
+        )
+
+    return {
+        "message": "Location deleted successfully",
+        "deleted": {
+            "location_id": location_id,
+            "devices": deleted_devices,
+        },
+    }
 
 
 @router.get("/devices", summary="List all devices (admin)")
@@ -345,6 +451,30 @@ async def update_device(
             detail="Device not found",
         )
     return {"device": updated}
+
+
+@router.delete("/devices/{device_id}", summary="Delete device (admin)")
+async def delete_device(
+    device_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Delete a single device."""
+    device = await device_repo.get_device_by_id(db, device_id)
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found",
+        )
+
+    deleted = await device_repo.delete_device(db, device_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found",
+        )
+
+    return {"message": "Device deleted successfully", "device_id": device_id}
 
 
 @router.get("/devices/{device_id}/sensor-data", summary="Get device sensor data (admin)")

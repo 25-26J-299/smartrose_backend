@@ -102,3 +102,38 @@ async def update_location(
         {"$set": updates},
     )
     return await get_location_by_id(db, location_id)
+
+
+async def delete_locations_by_user(
+    db: AsyncIOMotorDatabase, user_id: str
+) -> int:
+    """Delete all locations that belong to a user."""
+    result = await db[COLLECTION_NAME].delete_many({"user_id": user_id})
+    return result.deleted_count
+
+
+async def count_locations_by_user_ids(
+    db: AsyncIOMotorDatabase, user_ids: list[str]
+) -> dict[str, int]:
+    """Return location counts keyed by user_id for a list of users."""
+    if not user_ids:
+        return {}
+
+    pipeline = [
+        {"$match": {"user_id": {"$in": user_ids}}},
+        {"$group": {"_id": "$user_id", "count": {"$sum": 1}}},
+    ]
+    counts: dict[str, int] = {}
+    async for row in db[COLLECTION_NAME].aggregate(pipeline):
+        uid = row.get("_id")
+        if isinstance(uid, str):
+            counts[uid] = int(row.get("count", 0))
+    return counts
+
+
+async def delete_location(db: AsyncIOMotorDatabase, location_id: str) -> bool:
+    """Delete a single location by ID."""
+    if not ObjectId.is_valid(location_id):
+        return False
+    result = await db[COLLECTION_NAME].delete_one({"_id": ObjectId(location_id)})
+    return result.deleted_count > 0

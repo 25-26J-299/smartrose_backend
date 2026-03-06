@@ -96,6 +96,14 @@ async def get_device_by_serial(
     return _normalize_device(doc)
 
 
+async def delete_device(db: AsyncIOMotorDatabase, device_id: str) -> bool:
+    """Delete a single device by ID."""
+    if not ObjectId.is_valid(device_id):
+        return False
+    result = await db[COLLECTION_NAME].delete_one({"_id": ObjectId(device_id)})
+    return result.deleted_count > 0
+
+
 async def update_device(
     db: AsyncIOMotorDatabase,
     device_id: str,
@@ -134,3 +142,23 @@ async def update_last_seen(
         {"_id": ObjectId(device_id)},
         {"$set": {"last_seen": datetime.utcnow(), "updated_at": datetime.utcnow()}},
     )
+
+
+async def delete_devices_by_user(
+    db: AsyncIOMotorDatabase, user_id: str
+) -> int:
+    """Delete all devices assigned to a user."""
+    result = await db[COLLECTION_NAME].delete_many({"user_id": user_id})
+    return result.deleted_count
+
+
+async def delete_devices_by_locations(
+    db: AsyncIOMotorDatabase, location_ids: list[str]
+) -> int:
+    """Delete all devices assigned to the provided locations."""
+    if not location_ids:
+        return 0
+    result = await db[COLLECTION_NAME].delete_many(
+        {"location_id": {"$in": location_ids}}
+    )
+    return result.deleted_count
