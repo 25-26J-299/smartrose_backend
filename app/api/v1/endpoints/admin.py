@@ -160,6 +160,7 @@ async def update_user(
         full_name=updates.get("full_name"),
         phone=updates.get("phone"),
         role=updates.get("role"),
+        roles=updates.get("roles"),
         is_active=updates.get("is_active"),
     )
     if not updated:
