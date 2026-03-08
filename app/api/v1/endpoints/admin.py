@@ -68,11 +68,11 @@ async def _get_current_admin(
 
 @router.get("/search", summary="Search approved users and locations (admin)")
 async def search_for_device_assignment(
-    q: str = Query(..., min_length=2, description="Search by email, phone, or location name"),
+    q: str = Query(..., min_length=2, description="Search by email, phone, or company name"),
     db: AsyncIOMotorDatabase = Depends(get_db),
     _admin: dict = Depends(_get_current_admin),
 ) -> dict:
-    """Search approved users by email, phone, full_name, or by location name.
+    """Search approved users by email, phone, full_name, or by company name.
     Returns users with their locations for device assignment."""
     # 1. Search users by email, phone, full_name
     users_by_profile = await user_repo.search_approved_users(db, q)
@@ -289,7 +289,7 @@ async def update_location(
     db: AsyncIOMotorDatabase = Depends(get_db),
     _admin: dict = Depends(_get_current_admin),
 ) -> dict:
-    """Update location name, type, or address."""
+    """Update company name, type, or address."""
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         loc = await location_repo.get_location_by_id(db, location_id)

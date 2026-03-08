@@ -12,7 +12,7 @@ ALLOWED_STATUSES = {"pending", "approved", "rejected"}
 class LocationCreate(BaseModel):
     """Location details for registration (greenhouse or flower shop)."""
 
-    name: str = Field(..., min_length=1, description="Location name")
+    name: str = Field(..., min_length=1, description="Company name")
     type: str = Field(..., description="greenhouse | flower_shop")
     address: str = Field(..., min_length=1, description="Address")
 
