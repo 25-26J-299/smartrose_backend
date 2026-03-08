@@ -32,7 +32,11 @@ class UserCreate(BaseModel):
     email: EmailStr
     phone: Optional[str] = Field(default=None, max_length=32)
     password: str = Field(..., min_length=6, max_length=72)
-    role: str = Field(..., description="farmer | florist")
+    roles: List[str] = Field(
+        ...,
+        min_length=1,
+        description='["farmer"] | ["florist"] | ["farmer", "florist"]',
+    )
     location: LocationCreate = Field(
         ...,
         description="Location (greenhouse/flower shop) - required for registration",
@@ -44,13 +48,16 @@ class UserCreate(BaseModel):
         """Store emails in lowercase for uniqueness consistency."""
         return value.lower()
 
-    @field_validator("role")
+    @field_validator("roles")
     @classmethod
-    def validate_role(cls, v: str) -> str:
-        r = v.lower()
-        if r not in {"farmer", "florist"}:
-            raise ValueError("role must be farmer or florist")
-        return r
+    def validate_roles(cls, v: List[str]) -> List[str]:
+        normalized = [r.lower() for r in v]
+        invalid = [r for r in normalized if r not in {"farmer", "florist"}]
+        if invalid:
+            raise ValueError(f"Invalid roles: {', '.join(invalid)}. Must be farmer or florist")
+        if not normalized:
+            raise ValueError("At least one role is required")
+        return list(dict.fromkeys(normalized))
 
 
 class UserLogin(BaseModel):
@@ -92,6 +99,7 @@ class UserPublic(BaseModel):
     email: EmailStr
     phone: Optional[str] = None
     role: str
+    roles: List[str] = Field(default_factory=list)
     status: str
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -123,6 +131,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1)
     phone: Optional[str] = Field(None, max_length=32)
     role: Optional[str] = Field(None, description="admin | farmer | florist")
+    roles: Optional[List[str]] = Field(None, description='["farmer"] | ["florist"] | ["farmer","florist"]')
     is_active: Optional[bool] = None
 
     @field_validator("role")
@@ -134,6 +143,17 @@ class UserUpdate(BaseModel):
         if r not in ALLOWED_ROLES:
             raise ValueError("role must be admin, farmer, or florist")
         return r
+
+    @field_validator("roles")
+    @classmethod
+    def validate_roles(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        normalized = [r.lower() for r in v]
+        invalid = [r for r in normalized if r not in ALLOWED_ROLES]
+        if invalid:
+            raise ValueError(f"Invalid roles: {', '.join(invalid)}")
+        return list(dict.fromkeys(normalized))
 
 
 class LocationUpdate(BaseModel):

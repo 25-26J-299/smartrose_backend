@@ -84,6 +84,10 @@ async def register_user(
     user_dict = payload.model_dump(exclude={"location"})
     user_dict["email"] = user_dict["email"].lower()
     user_dict["password_hash"] = hash_password(user_dict.pop("password"))
+    # Ensure both role (primary) and roles (list) are stored
+    roles = user_dict.get("roles") or []
+    user_dict["role"] = roles[0] if roles else "farmer"
+    user_dict["roles"] = roles
     user_dict["status"] = "pending"
     user_dict["is_active"] = True
     created_user = await user_repo.create_user(db, user_dict)

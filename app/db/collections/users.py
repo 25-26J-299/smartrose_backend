@@ -14,13 +14,17 @@ def _normalize_user(document: Optional[dict]) -> Optional[dict]:
     if document is None:
         return None
     document["_id"] = str(document["_id"])
-    # Backward compatibility: name -> full_name, roles -> role
+    # Backward compatibility: name -> full_name
     if "name" in document and "full_name" not in document:
         document["full_name"] = document["name"]
-    if "roles" in document and "role" not in document:
-        roles = document.get("roles") or []
-        document["role"] = roles[0] if roles else "farmer"
+    # Sync role <-> roles so both are always present
+    if "roles" in document and document["roles"]:
+        roles = document["roles"]
+        document.setdefault("role", roles[0])
+    elif "role" in document and document["role"]:
+        document.setdefault("roles", [document["role"]])
     document.setdefault("role", "farmer")
+    document.setdefault("roles", [document["role"]])
     document.setdefault("status", "pending")
     document.setdefault("is_active", True)
     return document
@@ -99,6 +103,7 @@ async def update_user(
     full_name: Optional[str] = None,
     phone: Optional[str] = None,
     role: Optional[str] = None,
+    roles: Optional[list[str]] = None,
     is_active: Optional[bool] = None,
 ) -> Optional[dict]:
     """Update user fields and return the updated document."""
@@ -109,8 +114,12 @@ async def update_user(
         updates["full_name"] = full_name
     if phone is not None:
         updates["phone"] = phone
-    if role is not None:
+    if roles is not None:
+        updates["roles"] = roles
+        updates["role"] = roles[0] if roles else "farmer"
+    elif role is not None:
         updates["role"] = role
+        updates["roles"] = [role]
     if is_active is not None:
         updates["is_active"] = is_active
     await db[COLLECTION_NAME].update_one(
