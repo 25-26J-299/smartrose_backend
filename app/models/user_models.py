@@ -106,6 +106,7 @@ class UserPublic(BaseModel):
     last_login: Optional[datetime] = None
     is_active: bool
     greenhouse_count: int = 0
+    flower_shop_count: int = 0
 
     class Config:
         populate_by_name = True
