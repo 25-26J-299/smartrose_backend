@@ -131,6 +131,30 @@ async def count_locations_by_user_ids(
     return counts
 
 
+async def count_location_types_by_user_ids(
+    db: AsyncIOMotorDatabase, user_ids: list[str]
+) -> dict[str, dict[str, int]]:
+    """Return per-user counts split by greenhouse and flower_shop."""
+    if not user_ids:
+        return {}
+
+    pipeline = [
+        {"$match": {"user_id": {"$in": user_ids}}},
+        {"$group": {"_id": {"user_id": "$user_id", "type": "$type"}, "count": {"$sum": 1}}},
+    ]
+    counts: dict[str, dict[str, int]] = {}
+    async for row in db[COLLECTION_NAME].aggregate(pipeline):
+        group = row.get("_id") or {}
+        uid = group.get("user_id")
+        location_type = (group.get("type") or "").lower()
+        if isinstance(uid, str):
+            if uid not in counts:
+                counts[uid] = {"greenhouse": 0, "flower_shop": 0}
+            if location_type in {"greenhouse", "flower_shop"}:
+                counts[uid][location_type] = int(row.get("count", 0))
+    return counts
+
+
 async def delete_location(db: AsyncIOMotorDatabase, location_id: str) -> bool:
     """Delete a single location by ID."""
     if not ObjectId.is_valid(location_id):

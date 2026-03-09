@@ -111,9 +111,11 @@ async def list_users(
     """Return all users. Excludes password_hash. Optional status filter."""
     users = await user_repo.get_all_users(db, status_filter=status)
     user_ids = [u["_id"] for u in users]
-    location_counts = await location_repo.count_locations_by_user_ids(db, user_ids)
+    location_counts = await location_repo.count_location_types_by_user_ids(db, user_ids)
     for user in users:
-        user["greenhouse_count"] = location_counts.get(user["_id"], 0)
+        counts = location_counts.get(user["_id"], {})
+        user["greenhouse_count"] = counts.get("greenhouse", 0)
+        user["flower_shop_count"] = counts.get("flower_shop", 0)
     return {"users": [_public_user(u) for u in users]}
 
 
