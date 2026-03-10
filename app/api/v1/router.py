@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     health,
     inm,
     inm_actions,
+    notifications,
 )
 from app.core.config import settings
 
@@ -33,3 +34,4 @@ api_router.include_router(inm_actions.router, prefix="/inm", tags=["inm-actions"
 api_router.include_router(fm.router)  # Router has prefix="/fm" and tags=["FM"], combined with api_router prefix="/api/v1" = "/api/v1/fm"
 api_router.include_router(edas_data.router, prefix="/edas-data", tags=["edas-data"])
 api_router.include_router(edas_websocket.router, prefix="/edas-data", tags=["edas-websocket"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])

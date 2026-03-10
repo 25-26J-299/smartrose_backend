@@ -5,7 +5,7 @@ Coordinates between sensor readings, ML model inference, and prediction storage.
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 from app.db.collections.eosm_predictions import insert_stress_prediction
 from app.ml.eosm.eosm_inference import predict_stress
@@ -13,6 +13,7 @@ from app.models.eosm_prediction_models import (
     EOSMStressPredictionRequest,
     EOSMStressPredictionResponse,
 )
+from app.services.energy_optimization_service import optimize_energy
 
 # ================= eosm component start: ML service =================
 
@@ -119,6 +120,42 @@ async def predict_from_sensor_reading(
     except Exception:  # noqa: BLE001
         logger.exception("Failed to generate prediction from sensor reading")
         return None
+
+
+def _sensor_data_from_request(request: EOSMStressPredictionRequest) -> Dict[str, float]:
+    """Build sensor_data dict for EODE from a prediction request."""
+    return {
+        "temperature": request.temperature,
+        "humidity": request.humidity,
+        "soil_voltage": request.soil_voltage,
+        "uv_voltage": request.uv_voltage,
+        "mq_voltage": request.mq_voltage,
+    }
+
+
+async def generate_stress_prediction_with_energy(
+    request: EOSMStressPredictionRequest,
+    db=None,
+    device_id: Optional[str] = None,
+    sensor_reading_id: Optional[str] = None,
+    save_to_db: bool = True,
+) -> Tuple[Optional[EOSMStressPredictionResponse], Dict[str, Any]]:
+    """Generate stress prediction and EODE energy optimization in one pipeline step.
+
+    Returns (prediction, energy_optimization). If prediction fails, energy_optimization
+    is still computed using stress_label "MEDIUM" so the client always gets recommendations.
+    """
+    prediction = await generate_stress_prediction(
+        request=request,
+        db=db,
+        device_id=device_id,
+        sensor_reading_id=sensor_reading_id,
+        save_to_db=save_to_db,
+    )
+    sensor_data = _sensor_data_from_request(request)
+    stress_label = prediction.stress_label if prediction else "MEDIUM"
+    energy_optimization = optimize_energy(sensor_data, stress_label)
+    return (prediction, energy_optimization)
 
 # ================= eosm component end =================
 
