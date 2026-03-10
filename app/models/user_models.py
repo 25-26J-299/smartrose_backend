@@ -207,6 +207,12 @@ class StatusUpdate(BaseModel):
         return s
 
 
+class AdminPasswordUpdate(BaseModel):
+    """Payload for admin-initiated password reset."""
+
+    new_password: str = Field(..., min_length=6, max_length=72, description="New plain-text password (min 6 chars)")
+
+
 # Legacy: for backward compatibility with update-roles endpoint
 class RoleUpdateLegacy(BaseModel):
     """Payload for updating user roles (legacy)."""

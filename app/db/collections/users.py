@@ -225,6 +225,19 @@ async def get_all_users(
     return users
 
 
+async def update_password_hash(
+    db: AsyncIOMotorDatabase, user_id: str, password_hash: str
+) -> bool:
+    """Replace the stored bcrypt hash for a user. Returns True if the document was found and updated."""
+    if not ObjectId.is_valid(user_id):
+        return False
+    result = await db[COLLECTION_NAME].update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"password_hash": password_hash, "updated_at": datetime.utcnow()}},
+    )
+    return result.matched_count > 0
+
+
 async def delete_user(db: AsyncIOMotorDatabase, user_id: str) -> bool:
     """Delete a user by ID."""
     if not ObjectId.is_valid(user_id):
