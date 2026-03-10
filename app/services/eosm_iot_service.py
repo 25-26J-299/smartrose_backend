@@ -3,8 +3,11 @@
 import logging
 from typing import Dict
 
+from fastapi import HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.db.collections import base_stations as base_station_repo
+from app.db.collections import devices as device_repo
 from app.db.collections.eosm_readings import insert_sensor_reading
 from app.models.eosm_sensor_models import LoRaSensorIngest
 from app.models.eosm_prediction_models import EOSMStressPredictionRequest
@@ -18,15 +21,81 @@ logger = logging.getLogger(__name__)
 async def ingest_lora_reading(
     payload: LoRaSensorIngest, db: AsyncIOMotorDatabase
 ) -> Dict[str, str]:
-    """Persist a LoRa gateway reading, generate ML prediction, and return a standard response."""
+    """Persist a LoRa gateway reading, generate ML prediction. EOSM: deviceId → device + base_station lookup, enrich."""
     # ================= eosm component start: LoRa ingestion service =================
+    device = await device_repo.get_device_by_serial(db, payload.device_id)
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Device '{payload.device_id}' is not registered. "
+                "Ask your admin to register and assign this device first."
+            ),
+        )
+    if str(device.get("type", "")).upper() != "EOSM":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Device '{payload.device_id}' is not an EOSM device.",
+        )
+
+    base_station_id = device.get("base_station_id")
+    if not base_station_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Device '{payload.device_id}' has no base_station_id. "
+                "Connect this device to a base station in the admin panel."
+            ),
+        )
+
+    base_station = await base_station_repo.get_base_station_by_id(db, str(base_station_id))
+    if not base_station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base station for this device was not found.",
+        )
+
+    location_id = device.get("location_id", "")
+    user_id = device.get("user_id", "")
+    if base_station.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Device user_id does not match base station user_id.",
+        )
+
     record = payload.model_dump()
-    record["received_at"] = time_utils.utc_now()
+
+    now_utc = time_utils.utc_now()
+    reading_utc = time_utils.epoch_to_utc(payload.timestamp)
+    drift_seconds = abs((now_utc - reading_utc).total_seconds())
+    if drift_seconds > 86400 * 30:
+        logger.warning(
+            "Suspicious timestamp in payload — possible RTC drift or SD card replay",
+            extra={
+                "device_id": payload.device_id,
+                "timestamp_epoch": payload.timestamp,
+                "reading_time_utc": reading_utc.isoformat(),
+                "drift_seconds": drift_seconds,
+            },
+        )
+
+    # reading_time_utc: actual sensor reading time (from gateway UTC epoch)
+    # reading_time_slst: same moment as ISO string with +05:30 offset, for display
+    # received_at: when backend received this upload (detects offline delay)
+    record["reading_time_utc"] = reading_utc
+    record["reading_time_slst"] = time_utils.epoch_to_slst(payload.timestamp).isoformat()
+    record["received_at"] = now_utc
+
+    # Device / location context resolved from registry — no duplicates
+    record["device_id"] = payload.device_id
+    record["location_id"] = location_id
+    record["user_id"] = user_id
+    record["base_station_id"] = base_station["_id"]   # ObjectId ref
+    record["base_station_serial"] = base_station.get("serial") or ""  # human-readable
 
     try:
         inserted_id = await insert_sensor_reading(db, record)
-        
-        # Generate ML prediction for the newly ingested reading
+
         try:
             prediction_request = EOSMStressPredictionRequest(
                 temperature=payload.temperature,
@@ -34,33 +103,30 @@ async def ingest_lora_reading(
                 soil_voltage=payload.soil_voltage,
                 uv_voltage=payload.uv_voltage,
                 mq_voltage=payload.mq_voltage,
-                basestation_id=payload.basestation_id,
-                greenhouse_id=payload.greenhouse_id,
+                device_id=payload.device_id,
             )
-            
+
             await generate_stress_prediction(
                 request=prediction_request,
                 db=db,
-                basestation_id=payload.basestation_id,
-                greenhouse_id=payload.greenhouse_id,
+                device_id=payload.device_id,
                 sensor_reading_id=inserted_id,
                 save_to_db=True,
             )
             logger.info(
                 "ML prediction generated for ingested reading",
-                extra={"reading_id": inserted_id, "basestation_id": payload.basestation_id},
+                extra={"reading_id": inserted_id, "device_id": payload.device_id},
             )
         except Exception as pred_err:
-            # Don't fail ingestion if prediction fails
             logger.warning(
                 "Failed to generate prediction for ingested reading (non-fatal)",
                 extra={"reading_id": inserted_id, "error": str(pred_err)},
             )
-        
+
     except Exception:
         logger.exception(
             "Failed to ingest LoRa reading",
-            extra={"basestation_id": payload.basestation_id},
+            extra={"device_id": payload.device_id, "base_station_id": str(base_station_id)},
         )
         raise
 

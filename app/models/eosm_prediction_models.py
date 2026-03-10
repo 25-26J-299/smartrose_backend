@@ -16,8 +16,7 @@ class EOSMStressPredictionRequest(BaseModel):
     soil_voltage: float = Field(..., ge=0, description="Soil moisture sensor voltage")
     uv_voltage: float = Field(..., ge=0, description="UV sensor voltage")
     mq_voltage: float = Field(..., ge=0, description="Gas sensor (MQ) voltage")
-    basestation_id: Optional[str] = Field(None, description="Base station identifier")
-    greenhouse_id: Optional[str] = Field(None, description="Greenhouse identifier")
+    device_id: Optional[str] = Field(None, description="Device serial (e.g. SR-EOSM-20250310)")
 
 
 class EOSMStressPredictionResponse(BaseModel):
@@ -32,8 +31,7 @@ class EOSMStressPredictionInDB(EOSMStressPredictionResponse):
     """Schema for stress prediction stored in MongoDB."""
 
     id: Optional[str] = Field(None, alias="_id", description="MongoDB document ID")
-    basestation_id: Optional[str] = Field(None, description="Base station identifier")
-    greenhouse_id: Optional[str] = Field(None, description="Greenhouse identifier")
+    device_id: Optional[str] = Field(None, description="Device serial (e.g. SR-EOSM-20250310)")
     sensor_reading_id: Optional[str] = Field(None, description="Associated sensor reading ID")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Record creation timestamp")
 

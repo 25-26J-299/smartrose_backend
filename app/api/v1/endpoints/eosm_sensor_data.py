@@ -7,6 +7,8 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.api.deps import get_current_user
+from app.db.collections import devices as device_repo
 from app.db.collections.eosm_readings import find_recent_sensor_readings
 from app.db.collections.eosm_predictions import get_latest_prediction
 from app.db.mongodb import get_db
@@ -18,6 +20,17 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _verify_eosm_device_ownership(db, device_id: str, current_user: dict) -> dict:
+    dev = await device_repo.get_device_by_serial(db, device_id)
+    if not dev:
+        raise HTTPException(status_code=404, detail=f"Device '{device_id}' not found.")
+    if str(dev.get("type", "")).upper() != "EOSM":
+        raise HTTPException(status_code=400, detail=f"Device '{device_id}' is not an EOSM device.")
+    if dev.get("user_id") != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="You do not have access to this device.")
+    return dev
+
+
 @router.get(
     "/",
     summary="List sensor readings with optional date range filtering",
@@ -26,11 +39,11 @@ logger = logging.getLogger(__name__)
 )
 async def list_sensor_readings(
     limit: int = Query(20, ge=1, le=2000),
-    basestation_id: str | None = Query(None, alias="basestationId"),
-    greenhouse_id: str | None = Query(None, alias="greenhouseId"),
+    device_id: str | None = Query(None, alias="deviceId"),
     start_date: str | None = Query(None, alias="startDate", description="Start date in YYYY-MM-DD format"),
     end_date: str | None = Query(None, alias="endDate", description="End date in YYYY-MM-DD format"),
     db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
     """Return sensor readings with optional filters.
     
@@ -65,11 +78,14 @@ async def list_sensor_readings(
                 detail=f"Invalid endDate format. Expected YYYY-MM-DD, got: {end_date}"
             )
     
+    if device_id:
+        await _verify_eosm_device_ownership(db, device_id, current_user)
+
     readings = await find_recent_sensor_readings(
         db,
         limit=limit,
-        basestation_id=basestation_id,
-        greenhouse_id=greenhouse_id,
+        user_id=current_user["_id"],
+        device_id=device_id,
         start_timestamp=start_timestamp,
         end_timestamp=end_timestamp,
     )
@@ -94,7 +110,7 @@ async def ingest_lora_sensor_reading(
     except Exception:  # noqa: BLE001
         logger.exception(
             "Unexpected failure while inserting LoRa sensor reading",
-            extra={"basestation_id": payload.basestation_id},
+            extra={"device_id": payload.device_id},
         )
         raise HTTPException(
             status_code=500,
@@ -110,9 +126,9 @@ async def ingest_lora_sensor_reading(
     tags=["sensor-data"],
 )
 async def get_latest_with_prediction(
-    basestation_id: str | None = Query(None, alias="basestationId"),
-    greenhouse_id: str | None = Query(None, alias="greenhouseId"),
+    device_id: str | None = Query(None, alias="deviceId"),
     db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
     """Get the latest sensor reading along with its ML prediction.
     
@@ -120,65 +136,43 @@ async def get_latest_with_prediction(
     """
     # ================= eosm component start: Latest reading with prediction =================
     try:
+        if device_id:
+            await _verify_eosm_device_ownership(db, device_id, current_user)
+
         from app.models.eosm_prediction_models import EOSMStressPredictionRequest
         from app.services.eosm_ml_service import generate_stress_prediction
         
-        # If greenhouse_id is None (ALL greenhouses), aggregate predictions
-        if greenhouse_id is None:
-            # Fetch enough readings to ensure we get latest from each greenhouse
-            # Use a larger limit to cover all greenhouses (assuming reasonable number of greenhouses)
+        # If device_id is None (ALL devices), aggregate predictions
+        if device_id is None:
             all_readings = await find_recent_sensor_readings(
                 db,
-                limit=500,  # Get enough readings to cover all greenhouses
-                basestation_id=basestation_id,
-                greenhouse_id=None,  # No filter - get all greenhouses
+                limit=500,
+                user_id=current_user["_id"],
             )
-            
+
             if not all_readings:
-                raise HTTPException(
-                    status_code=404,
-                    detail="No sensor readings found",
-                )
-            
-            # Group by greenhouse_id and get the latest reading for each
-            # This ensures we get the most recent reading from each greenhouse
-            greenhouse_latest: Dict[str, Dict[str, Any]] = {}
+                raise HTTPException(status_code=404, detail="No sensor readings found")
+
+            # Group by device_id, keep the latest reading per device
+            device_latest: Dict[str, Dict[str, Any]] = {}
             for reading in all_readings:
-                gh_id = reading.get("greenhouse_id")
-                if gh_id:
-                    # Get timestamp (handle both int and datetime formats)
+                dev_id = reading.get("device_id")
+                if dev_id:
                     reading_ts = reading.get("timestamp", 0)
-                    if isinstance(reading_ts, str):
-                        try:
-                            reading_ts = int(datetime.fromisoformat(reading_ts.replace('Z', '+00:00')).timestamp())
-                        except (ValueError, AttributeError):
-                            reading_ts = 0
-                    
-                    if gh_id not in greenhouse_latest:
-                        greenhouse_latest[gh_id] = reading
-                    else:
-                        # Compare timestamps to keep the latest
-                        current_ts = greenhouse_latest[gh_id].get("timestamp", 0)
-                        if isinstance(current_ts, str):
-                            try:
-                                current_ts = int(datetime.fromisoformat(current_ts.replace('Z', '+00:00')).timestamp())
-                            except (ValueError, AttributeError):
-                                current_ts = 0
-                        
-                        if reading_ts > current_ts:
-                            greenhouse_latest[gh_id] = reading
-            
-            if not greenhouse_latest:
-                raise HTTPException(
-                    status_code=404,
-                    detail="No sensor readings with greenhouse_id found",
-                )
-            
+                    current_ts = device_latest.get(dev_id, {}).get("timestamp", 0)
+                    if dev_id not in device_latest or reading_ts > current_ts:
+                        device_latest[dev_id] = reading
+
+            if not device_latest:
+                raise HTTPException(status_code=404, detail="No sensor readings with device_id found")
+
+            greenhouse_latest = device_latest  # reuse variable below
+
             logger.info(
-                "Aggregating predictions from multiple greenhouses",
+                "Aggregating predictions from multiple devices",
                 extra={
-                    "greenhouse_count": len(greenhouse_latest),
-                    "greenhouse_ids": list(greenhouse_latest.keys()),
+                    "device_count": len(device_latest),
+                    "device_ids": list(device_latest.keys()),
                 },
             )
             
@@ -206,7 +200,7 @@ async def get_latest_with_prediction(
             logger.info(
                 "Calculated aggregated sensor values",
                 extra={
-                    "greenhouse_count": count,
+                    "device_count": count,
                     "avg_temperature": aggregated["temperature"],
                     "avg_humidity": aggregated["humidity"],
                     "avg_soil_voltage": aggregated["soil_voltage"],
@@ -242,15 +236,12 @@ async def get_latest_with_prediction(
                     soil_voltage=aggregated["soil_voltage"],
                     uv_voltage=aggregated["uv_voltage"],
                     mq_voltage=aggregated["mq_voltage"],
-                    basestation_id=None,  # Aggregated across all basestations
-                    greenhouse_id=None,  # Aggregated across all greenhouses
                 )
                 
                 prediction_response = await generate_stress_prediction(
                     request=prediction_request,
                     db=db,
-                    basestation_id=None,
-                    greenhouse_id=None,
+                    device_id=None,
                     save_to_db=False,  # Don't save aggregated predictions
                 )
                 
@@ -260,11 +251,11 @@ async def get_latest_with_prediction(
                         prediction["timestamp"] = int(prediction["timestamp"].timestamp())
                     # Mark as aggregated
                     prediction["is_aggregated"] = True
-                    prediction["greenhouse_count"] = count
+                    prediction["device_count"] = count
                     logger.info(
-                        "Aggregated prediction generated for all greenhouses",
+                        "Aggregated prediction generated for all devices",
                         extra={
-                            "greenhouse_count": count,
+                            "device_count": count,
                             "stress_label": prediction.get("stress_label"),
                         },
                     )
@@ -274,12 +265,12 @@ async def get_latest_with_prediction(
                     extra={"error": str(pred_err)},
                 )
         else:
-            # Single greenhouse: get latest reading and generate prediction
+            # Single device: get latest reading and generate prediction
             readings = await find_recent_sensor_readings(
                 db,
                 limit=1,
-                basestation_id=basestation_id,
-                greenhouse_id=greenhouse_id,
+                user_id=current_user["_id"],
+                device_id=device_id,
             )
             
             if not readings:
@@ -299,15 +290,13 @@ async def get_latest_with_prediction(
                     soil_voltage=float(latest_reading.get("soil_voltage", 2.0)),
                     uv_voltage=float(latest_reading.get("uv_voltage", 0.5)),
                     mq_voltage=float(latest_reading.get("mq_voltage", 0.5)),
-                    basestation_id=latest_reading.get("basestation_id"),
-                    greenhouse_id=latest_reading.get("greenhouse_id"),
+                    device_id=latest_reading.get("device_id"),
                 )
                 
                 prediction_response = await generate_stress_prediction(
                     request=prediction_request,
                     db=db,
-                    basestation_id=latest_reading.get("basestation_id"),
-                    greenhouse_id=latest_reading.get("greenhouse_id"),
+                    device_id=latest_reading.get("device_id"),
                     save_to_db=True,
                 )
                 
@@ -318,8 +307,7 @@ async def get_latest_with_prediction(
                     logger.info(
                         "Fresh prediction generated for latest reading",
                         extra={
-                            "basestation_id": latest_reading.get("basestation_id"),
-                            "greenhouse_id": latest_reading.get("greenhouse_id"),
+                            "device_id": latest_reading.get("device_id"),
                             "stress_label": prediction.get("stress_label"),
                         },
                     )
@@ -332,8 +320,7 @@ async def get_latest_with_prediction(
                 try:
                     prediction = await get_latest_prediction(
                         db,
-                        basestation_id=latest_reading.get("basestation_id"),
-                        greenhouse_id=latest_reading.get("greenhouse_id"),
+                        device_id=latest_reading.get("device_id"),
                     )
                 except Exception:
                     pass  # Continue with prediction=None

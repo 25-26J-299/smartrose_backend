@@ -3,8 +3,12 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.api.deps import get_current_user
+from app.db.collections import base_stations as base_station_repo
+from app.db.collections import locations as location_repo
 from app.db.collections.eosm_predictions import (
     find_recent_predictions,
     get_latest_prediction,
@@ -24,6 +28,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def _verify_location_ownership(db: AsyncIOMotorDatabase, location_id: str, current_user: dict) -> dict:
+    loc = await location_repo.get_location_by_id(db, location_id)
+    if not loc:
+        raise HTTPException(status_code=404, detail=f"Location '{location_id}' not found.")
+    if loc.get("user_id") != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="You do not have access to this location.")
+    return loc
+
+
+async def _verify_basestation_ownership(db: AsyncIOMotorDatabase, basestation_id: str, current_user: dict) -> dict:
+    bs = await base_station_repo.get_base_station_by_serial(db, basestation_id)
+    if not bs:
+        raise HTTPException(status_code=404, detail=f"Base station '{basestation_id}' not found.")
+    if bs.get("user_id") != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="You do not have access to this base station.")
+    return bs
+
+
 @router.post(
     "/predict",
     summary="Generate stress prediction from sensor data",
@@ -34,23 +56,14 @@ async def predict_stress_endpoint(
     request: EOSMStressPredictionRequest,
     save_to_db: bool = Query(True, description="Save prediction to database"),
     db=Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Generate stress prediction from sensor readings using ML model.
-    
-    Args:
-        request: Sensor reading data for prediction
-        save_to_db: Whether to save the prediction to database
-        db: MongoDB database instance
-    
-    Returns:
-        Prediction result with stress_label and stress_probabilities
-    """
+    """Generate stress prediction from sensor readings using ML model."""
     try:
         prediction = await generate_stress_prediction(
             request=request,
             db=db,
-            basestation_id=request.basestation_id,
-            greenhouse_id=request.greenhouse_id,
+            device_id=request.device_id,
             save_to_db=save_to_db,
         )
         
@@ -81,25 +94,15 @@ async def predict_stress_endpoint(
     tags=["eosm-predictions"],
 )
 async def get_latest_prediction_endpoint(
-    basestation_id: Optional[str] = Query(None, alias="basestationId", description="Filter by base station ID"),
-    greenhouse_id: Optional[str] = Query(None, alias="greenhouseId", description="Filter by greenhouse ID"),
+    device_id: Optional[str] = Query(None, alias="deviceId", description="Filter by device serial"),
     db=Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Get the latest stress prediction.
-    
-    Args:
-        basestation_id: Filter by base station ID
-        greenhouse_id: Filter by greenhouse ID
-        db: MongoDB database instance
-    
-    Returns:
-        Latest prediction document
-    """
+    """Get the latest stress prediction. Requires JWT."""
     try:
         prediction = await get_latest_prediction(
             db,
-            basestation_id=basestation_id,
-            greenhouse_id=greenhouse_id,
+            device_id=device_id,
         )
         
         if prediction is None:
@@ -130,25 +133,13 @@ async def get_latest_prediction_endpoint(
 )
 async def list_predictions(
     limit: int = Query(20, ge=1, le=2000, description="Maximum number of records to return"),
-    basestation_id: Optional[str] = Query(None, alias="basestationId", description="Filter by base station ID"),
-    greenhouse_id: Optional[str] = Query(None, alias="greenhouseId", description="Filter by greenhouse ID"),
+    device_id: Optional[str] = Query(None, alias="deviceId", description="Filter by device serial"),
     start_date: Optional[str] = Query(None, alias="startDate", description="Start date in YYYY-MM-DD format"),
     end_date: Optional[str] = Query(None, alias="endDate", description="End date in YYYY-MM-DD format"),
     db=Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """List stress predictions with optional filtering.
-    
-    Args:
-        limit: Maximum number of records to return
-        basestation_id: Filter by base station ID
-        greenhouse_id: Filter by greenhouse ID
-        start_date: Filter by start date (YYYY-MM-DD)
-        end_date: Filter by end date (YYYY-MM-DD)
-        db: MongoDB database instance
-    
-    Returns:
-        List of prediction documents
-    """
+    """List stress predictions with optional filtering. Requires JWT."""
     try:
         from datetime import datetime, timezone
         
@@ -180,8 +171,7 @@ async def list_predictions(
         predictions = await find_recent_predictions(
             db,
             limit=limit,
-            basestation_id=basestation_id,
-            greenhouse_id=greenhouse_id,
+            device_id=device_id,
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
         )
@@ -209,16 +199,9 @@ async def list_predictions(
 async def get_prediction_by_id_endpoint(
     prediction_id: str,
     db=Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Get a stress prediction by its ID.
-    
-    Args:
-        prediction_id: Prediction document ID
-        db: MongoDB database instance
-    
-    Returns:
-        Prediction document
-    """
+    """Get a stress prediction by its ID."""
     try:
         prediction = await get_prediction_by_id(db, prediction_id)
         

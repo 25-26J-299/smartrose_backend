@@ -42,8 +42,7 @@ async def insert_stress_prediction(
 async def find_recent_predictions(
     db: AsyncIOMotorDatabase,
     limit: int = 20,
-    basestation_id: Optional[str] = None,
-    greenhouse_id: Optional[str] = None,
+    device_id: Optional[str] = None,
     start_timestamp: Optional[int] = None,
     end_timestamp: Optional[int] = None,
 ) -> List[Dict]:
@@ -52,8 +51,7 @@ async def find_recent_predictions(
     Args:
         db: MongoDB database instance
         limit: Maximum number of records to return
-        basestation_id: Filter by base station ID
-        greenhouse_id: Filter by greenhouse ID
+        device_id: Filter by device serial
         start_timestamp: Filter by start timestamp (epoch seconds)
         end_timestamp: Filter by end timestamp (epoch seconds)
     
@@ -63,10 +61,8 @@ async def find_recent_predictions(
     try:
         query: Dict = {}
         
-        if basestation_id:
-            query["basestation_id"] = basestation_id
-        if greenhouse_id:
-            query["greenhouse_id"] = greenhouse_id
+        if device_id:
+            query["device_id"] = device_id
         
         if start_timestamp is not None or end_timestamp is not None:
             timestamp_query: Dict = {}
@@ -121,15 +117,13 @@ async def get_prediction_by_id(
 
 async def get_latest_prediction(
     db: AsyncIOMotorDatabase,
-    basestation_id: Optional[str] = None,
-    greenhouse_id: Optional[str] = None,
+    device_id: Optional[str] = None,
 ) -> Optional[Dict]:
     """Get the latest stress prediction.
     
     Args:
         db: MongoDB database instance
-        basestation_id: Filter by base station ID
-        greenhouse_id: Filter by greenhouse ID
+        device_id: Filter by device serial
     
     Returns:
         Latest prediction document or None if not found
@@ -137,10 +131,8 @@ async def get_latest_prediction(
     try:
         query: Dict = {}
         
-        if basestation_id:
-            query["basestation_id"] = basestation_id
-        if greenhouse_id:
-            query["greenhouse_id"] = greenhouse_id
+        if device_id:
+            query["device_id"] = device_id
         
         doc = await (
             db[COLLECTION_NAME]

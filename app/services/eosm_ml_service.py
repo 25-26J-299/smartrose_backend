@@ -22,8 +22,7 @@ logger = logging.getLogger(__name__)
 async def generate_stress_prediction(
     request: EOSMStressPredictionRequest,
     db=None,
-    basestation_id: Optional[str] = None,
-    greenhouse_id: Optional[str] = None,
+    device_id: Optional[str] = None,
     sensor_reading_id: Optional[str] = None,
     save_to_db: bool = True,
 ) -> Optional[EOSMStressPredictionResponse]:
@@ -32,8 +31,7 @@ async def generate_stress_prediction(
     Args:
         request: Prediction request with sensor readings
         db: MongoDB database instance (required if save_to_db is True)
-        basestation_id: Base station identifier
-        greenhouse_id: Greenhouse identifier
+        device_id: Device serial identifier
         sensor_reading_id: Associated sensor reading ID
         save_to_db: Whether to save prediction to database
     
@@ -41,7 +39,6 @@ async def generate_stress_prediction(
         Prediction response or None if prediction fails
     """
     try:
-        # Get prediction from ML model
         prediction_result = predict_stress(
             temperature=request.temperature,
             humidity=request.humidity,
@@ -54,22 +51,18 @@ async def generate_stress_prediction(
             logger.warning("ML model prediction returned None")
             return None
         
-        # Create prediction response
         prediction = EOSMStressPredictionResponse(
             stress_label=prediction_result["stress_label"],
             stress_probabilities=prediction_result["stress_probabilities"],
             timestamp=datetime.utcnow(),
         )
         
-        # Save to database if requested
         if save_to_db and db is not None:
             prediction_dict = prediction.model_dump()
-            prediction_dict["basestation_id"] = basestation_id or request.basestation_id
-            prediction_dict["greenhouse_id"] = greenhouse_id or request.greenhouse_id
+            prediction_dict["device_id"] = device_id or request.device_id
             prediction_dict["sensor_reading_id"] = sensor_reading_id
             prediction_dict["created_at"] = datetime.utcnow()
             
-            # Convert datetime to timestamp for MongoDB
             if isinstance(prediction_dict["timestamp"], datetime):
                 prediction_dict["timestamp"] = int(prediction_dict["timestamp"].timestamp())
             if isinstance(prediction_dict["created_at"], datetime):
@@ -80,8 +73,7 @@ async def generate_stress_prediction(
                 "EOSM stress prediction saved to database",
                 extra={
                     "stress_label": prediction.stress_label,
-                    "basestation_id": basestation_id,
-                    "greenhouse_id": greenhouse_id,
+                    "device_id": device_id,
                 },
             )
         
@@ -108,22 +100,19 @@ async def predict_from_sensor_reading(
         Prediction response or None if prediction fails
     """
     try:
-        # Extract sensor values
         request = EOSMStressPredictionRequest(
             temperature=float(reading_data.get("temperature", 20.0)),
             humidity=float(reading_data.get("humidity", 50.0)),
             soil_voltage=float(reading_data.get("soil_voltage", 2.0)),
             uv_voltage=float(reading_data.get("uv_voltage", 0.5)),
             mq_voltage=float(reading_data.get("mq_voltage", 0.5)),
-            basestation_id=reading_data.get("basestation_id"),
-            greenhouse_id=reading_data.get("greenhouse_id"),
+            device_id=reading_data.get("device_id"),
         )
         
         return await generate_stress_prediction(
             request=request,
             db=db,
-            basestation_id=reading_data.get("basestation_id"),
-            greenhouse_id=reading_data.get("greenhouse_id"),
+            device_id=reading_data.get("device_id"),
             sensor_reading_id=str(reading_data.get("_id", "")),
             save_to_db=save_to_db,
         )

@@ -22,6 +22,7 @@ async def create_device(
     db: AsyncIOMotorDatabase,
     location_id: str,
     user_id: str,
+    base_station_id: Optional[str],
     name: str,
     device_type: str,
     device_serial_number: str,
@@ -31,6 +32,7 @@ async def create_device(
     doc = {
         "location_id": location_id,
         "user_id": user_id,
+        "base_station_id": base_station_id,
         "name": name,
         "type": device_type,
         "device_serial_number": device_serial_number,
@@ -110,10 +112,14 @@ async def update_device(
     *,
     name: Optional[str] = None,
     device_type: Optional[str] = None,
+    base_station_id: Optional[str] = None,
+    set_base_station_id: bool = False,
     device_serial_number: Optional[str] = None,
     last_seen: Optional[datetime] = None,
 ) -> Optional[dict]:
-    """Update a device and return the updated document."""
+    """Update a device and return the updated document.
+    When set_base_station_id is True, base_station_id is written (use None to clear). EOSM only.
+    """
     if not ObjectId.is_valid(device_id):
         return None
     updates: dict = {"updated_at": datetime.utcnow()}
@@ -121,6 +127,10 @@ async def update_device(
         updates["name"] = name
     if device_type is not None:
         updates["type"] = device_type
+    if set_base_station_id:
+        updates["base_station_id"] = base_station_id
+    elif base_station_id is not None:
+        updates["base_station_id"] = base_station_id
     if device_serial_number is not None:
         updates["device_serial_number"] = device_serial_number
     if last_seen is not None:

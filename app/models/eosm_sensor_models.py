@@ -1,7 +1,6 @@
 """Pydantic models for eosm LoRa sensor payloads."""
 
 from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field, constr
 
 
@@ -33,16 +32,13 @@ class SensorData(BaseModel):
 
 
 class LoRaSensorIngest(BaseModel):
-    """Payload shape for LoRa gateway JSON ingestion."""
+    """Payload shape for LoRa gateway JSON ingestion. EOSM: only deviceId required."""
     # ================= eosm component start: LoRa gateway payload contract =================
 
     model_config = ConfigDict(populate_by_name=True)
 
-    basestation_id: constr(strip_whitespace=True, min_length=1) = Field(
-        ..., alias="basestationId", description="Gateway/base-station identifier"
-    )
-    greenhouse_id: constr(strip_whitespace=True, min_length=1) = Field(
-        ..., alias="greenhouseId", description="Greenhouse identifier"
+    device_id: constr(strip_whitespace=True, min_length=1) = Field(
+        ..., alias="deviceId", description="Registered EOSM device serial"
     )
     timestamp: int = Field(
         ...,

@@ -5,10 +5,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.collections import devices as device_repo
+from app.db.collections import base_stations as base_station_repo
 from app.db.collections import locations as location_repo
 from app.db.collections import users as user_repo
 from app.db.mongodb import get_db
-from app.models.device_models import DeviceCreate, DeviceUpdate
+from app.models.device_models import BaseStationCreate, BaseStationUpdate, DeviceCreate, DeviceUpdate
 from app.models.user_models import (
     AdminLocationCreate,
     LocationUpdate,
@@ -365,10 +366,14 @@ async def list_devices(
     for d in devices:
         loc = await location_repo.get_location_by_id(db, d.get("location_id", ""))
         user = await user_repo.get_user_by_id(db, d.get("user_id", ""))
+        bs = None
+        if d.get("base_station_id"):
+            bs = await base_station_repo.get_base_station_by_id(db, d["base_station_id"])
         enriched.append({
             **d,
             "location_name": loc.get("name", "") if loc else "",
             "user_name": user.get("full_name", user.get("name", "")) if user else "",
+            "base_station_serial": (bs or {}).get("serial", "") if bs else "",
         })
     return {"devices": enriched}
 
@@ -392,6 +397,7 @@ async def create_device(
         db,
         location_id=payload.location_id,
         user_id=payload.user_id,
+        base_station_id=payload.base_station_id,
         name=payload.name,
         device_type=payload.type,
         device_serial_number=payload.device_serial_number,
@@ -446,6 +452,8 @@ async def update_device(
         device_id,
         name=updates.get("name"),
         device_type=updates.get("type"),
+        base_station_id=updates.get("base_station_id"),
+        set_base_station_id="base_station_id" in updates,
         device_serial_number=updates.get("device_serial_number"),
     )
     if not updated:
@@ -530,3 +538,128 @@ async def get_device_sensor_data(
         "message": f"Sensor data for {device_type} - add collection query as needed",
     }
 
+
+# ---------------------------------------------------------------------------
+# Base stations (admin) — EOSM: one per user, devices link to base_station_id
+# ---------------------------------------------------------------------------
+
+@router.get("/base-stations", summary="List all base stations (admin)")
+async def list_base_stations(
+    user_id: str | None = Query(None, description="Filter by user"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Return all base stations with optional user filter. Enriched with user_name."""
+    base_stations = await base_station_repo.get_all_base_stations(db, user_id=user_id)
+    enriched = []
+    for bs in base_stations:
+        user = await user_repo.get_user_by_id(db, bs.get("user_id", ""))
+        enriched.append({
+            **bs,
+            "user_name": user.get("full_name", user.get("name", "")) if user else "",
+        })
+    return {"base_stations": enriched}
+
+
+@router.post("/base-stations", summary="Create base station (admin)")
+async def create_base_station(
+    payload: BaseStationCreate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Register a new base station for a user (EOSM)."""
+    existing = await base_station_repo.get_base_station_by_serial(db, payload.serial)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Base station serial already registered",
+        )
+    user = await user_repo.get_user_by_id(db, payload.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    base_station = await base_station_repo.create_base_station(
+        db,
+        user_id=payload.user_id,
+        name=payload.name,
+        serial=payload.serial,
+    )
+    return {"base_station": base_station}
+
+
+@router.get("/base-stations/{base_station_id}", summary="Get base station (admin)")
+async def get_base_station(
+    base_station_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Return a single base station by ID."""
+    base_station = await base_station_repo.get_base_station_by_id(db, base_station_id)
+    if not base_station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base station not found",
+        )
+    return {"base_station": base_station}
+
+
+@router.patch("/base-stations/{base_station_id}", summary="Update base station (admin)")
+async def update_base_station(
+    base_station_id: str,
+    payload: BaseStationUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Update base station name or serial."""
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        base_station = await base_station_repo.get_base_station_by_id(db, base_station_id)
+        if not base_station:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Base station not found",
+            )
+        return {"base_station": base_station}
+    if "serial" in updates:
+        existing = await base_station_repo.get_base_station_by_serial(db, updates["serial"])
+        if existing and existing["_id"] != base_station_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Base station serial already registered",
+            )
+    updated = await base_station_repo.update_base_station(
+        db,
+        base_station_id,
+        name=updates.get("name"),
+        serial=updates.get("serial"),
+    )
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base station not found",
+        )
+    return {"base_station": updated}
+
+
+@router.delete("/base-stations/{base_station_id}", summary="Delete base station (admin)")
+async def delete_base_station(
+    base_station_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Delete a single base station."""
+    base_station = await base_station_repo.get_base_station_by_id(db, base_station_id)
+    if not base_station:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base station not found",
+        )
+    deleted = await base_station_repo.delete_base_station(db, base_station_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Base station not found",
+        )
+    return {"message": "Base station deleted successfully", "base_station_id": base_station_id}

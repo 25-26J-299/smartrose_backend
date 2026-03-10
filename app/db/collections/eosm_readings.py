@@ -23,7 +23,7 @@ async def insert_sensor_reading(db: AsyncIOMotorDatabase, payload: dict) -> str:
             "Failed to insert sensor reading",
             extra={
                 "collection": COLLECTION_NAME,
-                "basestation_id": payload.get("basestation_id"),
+                "device_id": payload.get("device_id"),
             },
         )
         raise
@@ -32,32 +32,26 @@ async def insert_sensor_reading(db: AsyncIOMotorDatabase, payload: dict) -> str:
 async def find_recent_sensor_readings(
     db: AsyncIOMotorDatabase,
     limit: int = 20,
-    basestation_id: str | None = None,
-    greenhouse_id: str | None = None,
+    location_id: str | None = None,
+    user_id: str | None = None,
+    device_id: str | None = None,
     start_timestamp: Optional[int] = None,
     end_timestamp: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetch sensor readings with optional filters.
-    
-    Args:
-        db: MongoDB database instance
-        limit: Maximum number of records to return
-        basestation_id: Filter by basestation ID
-        greenhouse_id: Filter by greenhouse ID
-        start_timestamp: Filter records with timestamp >= start_timestamp (epoch seconds)
-        end_timestamp: Filter records with timestamp <= end_timestamp (epoch seconds)
-    """
-    # Sort primarily by received_at/timestamp if present, then created_at as a fallback.
+    """Fetch sensor readings with optional filters."""
     sort_keys = [
         ("received_at", -1),
         ("timestamp", -1),
-        ("created_at", -1),
     ]
     projection = {
-        "sensor_id": 1,
-        "basestation_id": 1,
-        "greenhouse_id": 1,
+        "device_id": 1,
+        "base_station_id": 1,
+        "base_station_serial": 1,
+        "location_id": 1,
+        "user_id": 1,
         "timestamp": 1,
+        "reading_time_utc": 1,
+        "reading_time_slst": 1,
         "received_at": 1,
         "temperature": 1,
         "humidity": 1,
@@ -67,14 +61,15 @@ async def find_recent_sensor_readings(
         "soil_voltage": 1,
         "mq_raw": 1,
         "mq_voltage": 1,
-        "created_at": 1,
     }
 
     query: Dict[str, Any] = {}
-    if basestation_id:
-        query["basestation_id"] = basestation_id
-    if greenhouse_id:
-        query["greenhouse_id"] = greenhouse_id
+    if location_id:
+        query["location_id"] = location_id
+    if user_id:
+        query["user_id"] = user_id
+    if device_id:
+        query["device_id"] = device_id
     
     # Add timestamp range filtering
     if start_timestamp is not None or end_timestamp is not None:
@@ -95,7 +90,8 @@ async def find_recent_sensor_readings(
     docs = await cursor.to_list(length=limit)
     for i, doc in enumerate(docs):
         doc["_id"] = str(doc.get("_id"))
-        # Convert UTC datetime fields to Sri Lankan time (IST)
-        docs[i] = convert_datetime_fields(doc, ["received_at", "created_at"])
+        if doc.get("base_station_id"):
+            doc["base_station_id"] = str(doc["base_station_id"])
+        docs[i] = convert_datetime_fields(doc, ["reading_time_utc", "received_at"])
     return docs
 

@@ -13,6 +13,10 @@ class DeviceCreate(BaseModel):
 
     location_id: str = Field(..., min_length=1)
     user_id: str = Field(..., min_length=1)
+    base_station_id: Optional[str] = Field(
+        None,
+        description="EOSM: base station this device is connected to (optional)",
+    )
     name: str = Field(..., min_length=1)
     type: str = Field(..., description="INM | EOSM | EDAS | FM")
     device_serial_number: str = Field(..., min_length=1)
@@ -31,6 +35,10 @@ class DeviceUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1)
     type: Optional[str] = Field(None, description="INM | EOSM | EDAS | FM")
+    base_station_id: Optional[str] = Field(
+        None,
+        description="EOSM: base station this device is connected to (optional, send null to clear)",
+    )
     device_serial_number: Optional[str] = Field(None, min_length=1)
 
     @field_validator("type")
@@ -42,3 +50,19 @@ class DeviceUpdate(BaseModel):
         if t not in DEVICE_TYPES:
             raise ValueError("type must be INM, EOSM, EDAS, or FM")
         return t
+
+
+# EOSM: base station admin models
+class BaseStationCreate(BaseModel):
+    """Payload for creating a base station (admin)."""
+
+    user_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    serial: str = Field(..., min_length=1, description="Unique base station serial")
+
+
+class BaseStationUpdate(BaseModel):
+    """Payload for updating a base station. Partial update."""
+
+    name: Optional[str] = Field(None, min_length=1)
+    serial: Optional[str] = Field(None, min_length=1)
