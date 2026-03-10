@@ -10,14 +10,36 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.api.deps import get_current_user
 from app.db.collections import devices as device_repo
 from app.db.collections.eosm_readings import find_recent_sensor_readings
-from app.db.collections.eosm_predictions import get_latest_prediction
+from app.db.collections.eosm_predictions import get_latest_prediction, get_previous_prediction_for_reading
 from app.db.mongodb import get_db
 from app.models.eosm_sensor_models import LoRaSensorIngest
 from app.services.eosm_iot_service import ingest_lora_reading
+from app.services.energy_optimization_service import optimize_energy
+from app.services.eosm_ml_service import generate_stress_prediction_with_energy
+from app.services.notification_service import create_notification
+from app.db.collections import notifications as notifications_repo
 from app.utils.response_builder import success_response
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _sensor_data_from_reading(reading: Dict[str, Any]) -> Dict[str, float]:
+    """Build sensor_data dict for EODE from a reading document."""
+    return {
+        "temperature": float(reading.get("temperature", 25.0)),
+        "humidity": float(reading.get("humidity", 60.0)),
+        "soil_voltage": float(reading.get("soil_voltage", 2.5)),
+        "uv_voltage": float(reading.get("uv_voltage", 0.8)),
+        "mq_voltage": float(reading.get("mq_voltage", 0.5)),
+    }
+
+
+def _add_confidence_to_prediction(prediction: Dict[str, Any]) -> None:
+    """Add confidence (max probability) to prediction dict for Flutter."""
+    probs = prediction.get("stress_probabilities") or {}
+    if isinstance(probs, dict) and probs:
+        prediction["confidence"] = round(max(float(p) for p in probs.values()), 2)
 
 
 async def _verify_eosm_device_ownership(db, device_id: str, current_user: dict) -> dict:
@@ -140,8 +162,8 @@ async def get_latest_with_prediction(
             await _verify_eosm_device_ownership(db, device_id, current_user)
 
         from app.models.eosm_prediction_models import EOSMStressPredictionRequest
-        from app.services.eosm_ml_service import generate_stress_prediction
-        
+
+        energy_optimization = None
         # If device_id is None (ALL devices), aggregate predictions
         if device_id is None:
             all_readings = await find_recent_sensor_readings(
@@ -165,6 +187,70 @@ async def get_latest_with_prediction(
 
             if not device_latest:
                 raise HTTPException(status_code=404, detail="No sensor readings with device_id found")
+
+            # Per-device: ensure prediction saved and create HIGH stress notification if needed (same as single-device path)
+            for dev_id, reading in device_latest.items():
+                try:
+                    current_reading_id = str(reading.get("_id", ""))
+                    prev_pred = await get_previous_prediction_for_reading(
+                        db, device_id=dev_id, current_sensor_reading_id=current_reading_id
+                    )
+                    prev_stress = (
+                        str(prev_pred["stress_label"]).upper()
+                        if prev_pred and prev_pred.get("stress_label")
+                        else None
+                    )
+                    pred_req = EOSMStressPredictionRequest(
+                        temperature=float(reading.get("temperature", 20.0)),
+                        humidity=float(reading.get("humidity", 50.0)),
+                        soil_voltage=float(reading.get("soil_voltage", 2.0)),
+                        uv_voltage=float(reading.get("uv_voltage", 0.5)),
+                        mq_voltage=float(reading.get("mq_voltage", 0.5)),
+                        device_id=dev_id,
+                    )
+                    pred_resp, _ = await generate_stress_prediction_with_energy(
+                        request=pred_req,
+                        db=db,
+                        device_id=dev_id,
+                        sensor_reading_id=current_reading_id,
+                        save_to_db=True,
+                    )
+                    if pred_resp:
+                        cur_stress = (
+                            str(pred_resp.stress_label).upper()
+                            if pred_resp and pred_resp.stress_label
+                            else None
+                        )
+                        if cur_stress == "HIGH" and (prev_stress is None or prev_stress != "HIGH"):
+                            uid = reading.get("user_id")
+                            loc_id = reading.get("location_id")
+                            if uid:
+                                already = await notifications_repo.exists_eosm_high_for_reading(
+                                    db, str(uid), current_reading_id
+                                )
+                                if not already:
+                                    await create_notification(
+                                        db=db,
+                                        user_id=str(uid),
+                                        type="EOSM",
+                                        title="High Plant Stress Detected",
+                                        message="Greenhouse experiencing high stress conditions.",
+                                        severity="HIGH",
+                                        metadata={
+                                            "device_id": dev_id,
+                                            "greenhouse_id": str(loc_id) if loc_id else "",
+                                            "sensor_reading_id": current_reading_id,
+                                        },
+                                    )
+                                    logger.info(
+                                        "EOSM HIGH stress notification created (aggregate path)",
+                                        extra={"device_id": dev_id},
+                                    )
+                except Exception as per_dev_err:
+                    logger.warning(
+                        "Per-device prediction/notification failed (non-fatal)",
+                        extra={"device_id": dev_id, "error": str(per_dev_err)},
+                    )
 
             greenhouse_latest = device_latest  # reuse variable below
 
@@ -237,21 +323,19 @@ async def get_latest_with_prediction(
                     uv_voltage=aggregated["uv_voltage"],
                     mq_voltage=aggregated["mq_voltage"],
                 )
-                
-                prediction_response = await generate_stress_prediction(
+                prediction_response, energy_optimization = await generate_stress_prediction_with_energy(
                     request=prediction_request,
                     db=db,
                     device_id=None,
-                    save_to_db=False,  # Don't save aggregated predictions
+                    save_to_db=False,
                 )
-                
                 if prediction_response:
                     prediction = prediction_response.model_dump(by_alias=True)
                     if "timestamp" in prediction and isinstance(prediction["timestamp"], datetime):
                         prediction["timestamp"] = int(prediction["timestamp"].timestamp())
-                    # Mark as aggregated
                     prediction["is_aggregated"] = True
                     prediction["device_count"] = count
+                    _add_confidence_to_prediction(prediction)
                     logger.info(
                         "Aggregated prediction generated for all devices",
                         extra={
@@ -280,7 +364,19 @@ async def get_latest_with_prediction(
                 )
             
             latest_reading = readings[0]
-            
+            dev_id = latest_reading.get("device_id")
+            current_reading_id = str(latest_reading.get("_id", ""))
+
+            # Previous = prediction for a different reading (not this one), so we don't use same-reading from prior API call
+            previous_prediction = await get_previous_prediction_for_reading(
+                db, device_id=dev_id, current_sensor_reading_id=current_reading_id
+            )
+            previous_stress = (
+                str(previous_prediction["stress_label"]).upper()
+                if previous_prediction and previous_prediction.get("stress_label")
+                else None
+            )
+
             # Always generate a fresh prediction for the latest reading
             prediction = None
             try:
@@ -292,25 +388,63 @@ async def get_latest_with_prediction(
                     mq_voltage=float(latest_reading.get("mq_voltage", 0.5)),
                     device_id=latest_reading.get("device_id"),
                 )
-                
-                prediction_response = await generate_stress_prediction(
+                prediction_response, energy_optimization = await generate_stress_prediction_with_energy(
                     request=prediction_request,
                     db=db,
-                    device_id=latest_reading.get("device_id"),
+                    device_id=dev_id,
+                    sensor_reading_id=current_reading_id,
                     save_to_db=True,
                 )
-                
                 if prediction_response:
                     prediction = prediction_response.model_dump(by_alias=True)
                     if "timestamp" in prediction and isinstance(prediction["timestamp"], datetime):
                         prediction["timestamp"] = int(prediction["timestamp"].timestamp())
+                    _add_confidence_to_prediction(prediction)
                     logger.info(
                         "Fresh prediction generated for latest reading",
                         extra={
-                            "device_id": latest_reading.get("device_id"),
+                            "device_id": dev_id,
                             "stress_label": prediction.get("stress_label"),
                         },
                     )
+                    # Notify when stress transitions TO HIGH (same logic as ingest) — covers manually inserted readings
+                    current_stress = (
+                        str(prediction_response.stress_label).upper()
+                        if prediction_response and prediction_response.stress_label
+                        else None
+                    )
+                    # Notify when HIGH and (no previous prediction, or previous was LOW/MEDIUM)
+                    if current_stress == "HIGH" and (previous_stress is None or previous_stress != "HIGH"):
+                        try:
+                            user_id_val = latest_reading.get("user_id")
+                            location_id = latest_reading.get("location_id")
+                            if user_id_val:
+                                already = await notifications_repo.exists_eosm_high_for_reading(
+                                    db, str(user_id_val), current_reading_id
+                                )
+                                if not already:
+                                    await create_notification(
+                                        db=db,
+                                        user_id=str(user_id_val),
+                                        type="EOSM",
+                                        title="High Plant Stress Detected",
+                                        message="Greenhouse experiencing high stress conditions.",
+                                        severity="HIGH",
+                                        metadata={
+                                            "device_id": dev_id,
+                                            "greenhouse_id": str(location_id) if location_id else "",
+                                            "sensor_reading_id": current_reading_id,
+                                        },
+                                    )
+                                    logger.info(
+                                        "EOSM HIGH stress notification created for latest reading",
+                                        extra={"device_id": dev_id},
+                                    )
+                        except Exception as notif_err:
+                            logger.warning(
+                                "Failed to create HIGH stress notification (non-fatal)",
+                                extra={"device_id": dev_id, "error": str(notif_err)},
+                            )
             except Exception as pred_err:
                 logger.warning(
                     "Failed to generate prediction for latest reading",
@@ -324,10 +458,16 @@ async def get_latest_with_prediction(
                     )
                 except Exception:
                     pass  # Continue with prediction=None
-        
+
+        if energy_optimization is None:
+            stress_label = (prediction or {}).get("stress_label") or "MEDIUM"
+            sensor_data = _sensor_data_from_reading(latest_reading)
+            energy_optimization = optimize_energy(sensor_data, stress_label)
+
         result = {
             "reading": latest_reading,
             "prediction": prediction,
+            "energy_optimization": energy_optimization,
         }
         
         return success_response(

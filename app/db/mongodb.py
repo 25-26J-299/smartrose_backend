@@ -68,6 +68,7 @@ async def init_db() -> None:
         await _ensure_index(db, "edas_sensor_data", [("device_id", 1)])
         await _ensure_index(db, "base_stations", [("serial", 1)], unique=True)
         await _ensure_index(db, "eosm_s_data", [("device_id", 1), ("user_id", 1)])
+        await _ensure_index(db, "notifications", [("user_id", 1), ("created_at", -1)])
     except Exception as exc:  # noqa: BLE001
         error_msg = (
             f"MongoDB connection failed: {settings.mongo_uri}\n"

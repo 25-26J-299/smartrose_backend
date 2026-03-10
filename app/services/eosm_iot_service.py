@@ -9,9 +9,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.db.collections import base_stations as base_station_repo
 from app.db.collections import devices as device_repo
 from app.db.collections.eosm_readings import insert_sensor_reading
+from app.db.collections.eosm_predictions import get_latest_prediction
+from app.db.collections import notifications as notifications_repo
 from app.models.eosm_sensor_models import LoRaSensorIngest
 from app.models.eosm_prediction_models import EOSMStressPredictionRequest
 from app.services.eosm_ml_service import generate_stress_prediction
+from app.services.notification_service import create_notification
 from app.utils import time_utils
 from app.utils.response_builder import success_response
 
@@ -97,6 +100,14 @@ async def ingest_lora_reading(
         inserted_id = await insert_sensor_reading(db, record)
 
         try:
+            # Fetch previous prediction for this device (before we insert the new one)
+            previous_prediction = await get_latest_prediction(db, device_id=payload.device_id)
+            previous_stress = (
+                str(previous_prediction["stress_label"]).upper()
+                if previous_prediction and previous_prediction.get("stress_label")
+                else None
+            )
+
             prediction_request = EOSMStressPredictionRequest(
                 temperature=payload.temperature,
                 humidity=payload.humidity,
@@ -106,7 +117,7 @@ async def ingest_lora_reading(
                 device_id=payload.device_id,
             )
 
-            await generate_stress_prediction(
+            prediction_response = await generate_stress_prediction(
                 request=prediction_request,
                 db=db,
                 device_id=payload.device_id,
@@ -117,6 +128,40 @@ async def ingest_lora_reading(
                 "ML prediction generated for ingested reading",
                 extra={"reading_id": inserted_id, "device_id": payload.device_id},
             )
+
+            # Notify only when stress is HIGH and (no previous level or transition from LOW/MEDIUM)
+            current_stress = (
+                str(prediction_response.stress_label).upper()
+                if prediction_response and prediction_response.stress_label
+                else None
+            )
+            if (
+                current_stress == "HIGH"
+                and (previous_stress is None or previous_stress != "HIGH")
+            ):
+                try:
+                    already = await notifications_repo.exists_eosm_high_for_reading(
+                        db, str(user_id), inserted_id
+                    )
+                    if not already:
+                        await create_notification(
+                            db=db,
+                            user_id=str(user_id),
+                            type="EOSM",
+                            title="High Plant Stress Detected",
+                            message="Greenhouse experiencing high stress conditions.",
+                            severity="HIGH",
+                            metadata={
+                                "device_id": payload.device_id,
+                                "greenhouse_id": str(location_id) if location_id else "",
+                                "sensor_reading_id": inserted_id,
+                            },
+                        )
+                except Exception as notif_err:
+                    logger.warning(
+                        "Failed to create HIGH stress notification (non-fatal)",
+                        extra={"device_id": payload.device_id, "error": str(notif_err)},
+                    )
         except Exception as pred_err:
             logger.warning(
                 "Failed to generate prediction for ingested reading (non-fatal)",
