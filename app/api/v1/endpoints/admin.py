@@ -12,12 +12,14 @@ from app.db.mongodb import get_db
 from app.models.device_models import BaseStationCreate, BaseStationUpdate, DeviceCreate, DeviceUpdate
 from app.models.user_models import (
     AdminLocationCreate,
+    AdminPasswordUpdate,
     LocationUpdate,
     RoleUpdate,
     StatusUpdate,
     UserPublic,
     UserUpdate,
 )
+from app.services.auth_service import hash_password
 from app.services.auth_service import decode_jwt
 
 router = APIRouter()
@@ -172,6 +174,30 @@ async def update_user(
             detail="User not found",
         )
     return {"user": _public_user(updated)}
+
+
+@router.patch("/users/{user_id}/password", summary="Reset user password (admin)")
+async def reset_user_password(
+    user_id: str,
+    payload: AdminPasswordUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _admin: dict = Depends(_get_current_admin),
+) -> dict:
+    """Set a new password for any user. Admin-only. The new password is bcrypt-hashed before storing."""
+    user = await user_repo.get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    new_hash = hash_password(payload.new_password)
+    updated = await user_repo.update_password_hash(db, user_id, new_hash)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    return {"message": f"Password updated for user '{user.get('email')}'"}
 
 
 @router.delete("/users/{user_id}", summary="Delete user (admin)")
