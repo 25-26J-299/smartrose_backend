@@ -358,9 +358,21 @@ async def get_latest_with_prediction(
             )
             
             if not readings:
-                raise HTTPException(
-                    status_code=404,
-                    detail="No sensor readings found",
+                # Device exists but has no readings yet — return 200 with nulls so app can show "No data"
+                latest_reading = None
+                prediction = None
+                energy_optimization = optimize_energy(
+                    _sensor_data_from_reading({}),
+                    "MEDIUM",
+                )
+                result = {
+                    "reading": latest_reading,
+                    "prediction": prediction,
+                    "energy_optimization": energy_optimization,
+                }
+                return success_response(
+                    message="No sensor readings found for this device",
+                    data=result,
                 )
             
             latest_reading = readings[0]
