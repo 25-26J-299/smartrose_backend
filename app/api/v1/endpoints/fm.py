@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Path, Response
 
+from app.core.config import settings
 from app.db.collections import devices as device_repo
 from app.db.collections import notifications as notifications_repo
 from app.db.mongodb import get_database
@@ -260,10 +261,21 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
                 extra={"device_id": payload.device_id, "error": str(notif_err)},
             )
 
+        freshness_score = float(prediction.get("freshness_score") or 50.0)
+        replace_water = freshness_score < settings.FM_REPLACE_WATER_THRESHOLD
+
+        if replace_water:
+            logger.info(
+                "Freshness low - replace_water=true for device",
+                extra={"device_id": payload.device_id, "freshness_score": freshness_score},
+            )
+
         return {
             "message": "saved",
             "id": inserted_id,
             "prediction_id": prediction_id,
+            "freshness_score": freshness_score,
+            "replace_water": replace_water,
         }
     except HTTPException:
         raise
@@ -449,9 +461,13 @@ async def get_latest_with_prediction(
         # Add back the _id for frontend reference
         reading_dict["_id"] = reading_doc.get("_id")
 
+        pred_dict = prediction.model_dump(mode='json')
+        freshness_score = prediction.freshness_score
+        pred_dict["replace_water"] = freshness_score < settings.FM_REPLACE_WATER_THRESHOLD
+
         return {
             "reading": reading_dict,
-            "prediction": prediction.model_dump(mode='json'),
+            "prediction": pred_dict,
         }
     except HTTPException:
         raise
