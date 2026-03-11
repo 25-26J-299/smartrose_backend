@@ -140,3 +140,27 @@ async def exists_eosm_high_for_reading(
     except Exception:  # noqa: BLE001
         logger.exception("exists_eosm_high_for_reading failed")
         return True  # skip creating to be safe
+
+
+async def exists_inm_event_for_reading(
+    db: AsyncIOMotorDatabase,
+    user_id: str,
+    sensor_reading_id: str,
+    event_key: str,
+) -> bool:
+    """Return True if an INM notification already exists for this reading/event pair."""
+    if not sensor_reading_id or not event_key:
+        return False
+    try:
+        doc = await db[COLLECTION_NAME].find_one(
+            {
+                "user_id": user_id,
+                "type": "INM",
+                "metadata.sensor_reading_id": sensor_reading_id,
+                "metadata.event_key": event_key,
+            }
+        )
+        return doc is not None
+    except Exception:  # noqa: BLE001
+        logger.exception("exists_inm_event_for_reading failed")
+        return True  # skip creating to be safe
