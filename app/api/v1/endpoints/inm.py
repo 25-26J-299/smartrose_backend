@@ -16,6 +16,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.api.deps import get_current_user
 from app.db.collections import devices as device_repo
+from app.db.collections import notifications as notifications_repo
 from app.db.collections.inm_growth_stage import get_growth_stage_state
 from app.db.collections.inm_predictions import create_inm_prediction
 from app.db.collections.inm_readings import (
@@ -38,7 +39,8 @@ from app.services.inm_growth_stage_service import (
     get_current_growth_stage,
     set_current_growth_stage,
 )
-from app.services.inm_service import generate_inm_recommendation
+from app.services.inm_service import ECStatus, classify_ec_status, generate_inm_recommendation
+from app.services.notification_service import create_notification
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -95,6 +97,8 @@ async def create_sensor_data(payload: INMSensorData, db=Depends(get_db)) -> dict
             ),
         )
 
+    previous_reading = await get_latest_inm_reading_by_device(db, payload.device_id)
+
     data = payload.model_dump()
     # Enrich with ownership context so readings can be queried by greenhouse/user
     data["location_id"] = device.get("location_id", "")
@@ -129,6 +133,58 @@ async def create_sensor_data(payload: INMSensorData, db=Depends(get_db)) -> dict
         logger.info(
             "INM ML prediction executed on ingest",
             extra={"record_id": record_id, "predicted_ec_24h": predicted},
+        )
+
+    try:
+        user_id = data.get("user_id")
+        location_id = data.get("location_id")
+        current_ec = float(data.get("ec", 0.0))
+        current_status = classify_ec_status(current_ec)
+        previous_status = None
+        if previous_reading:
+            previous_status = classify_ec_status(float(previous_reading.get("ec", 0.0)))
+
+        notification_payload = None
+        if current_status == ECStatus.CRITICAL_LOW and previous_status != ECStatus.CRITICAL_LOW:
+            notification_payload = {
+                "event_key": "critical_ec_low",
+                "title": "Critical EC Too Low",
+                "message": "Nutrient concentration is critically low. Increase nutrient solution immediately.",
+            }
+        elif current_status == ECStatus.CRITICAL_HIGH and previous_status != ECStatus.CRITICAL_HIGH:
+            notification_payload = {
+                "event_key": "critical_ec_high",
+                "title": "Critical EC Too High",
+                "message": "EC is critically high. Flush with clean water and reduce fertilizer immediately.",
+            }
+
+        if user_id and notification_payload:
+            already = await notifications_repo.exists_inm_event_for_reading(
+                db,
+                str(user_id),
+                record_id,
+                notification_payload["event_key"],
+            )
+            if not already:
+                await create_notification(
+                    db=db,
+                    user_id=str(user_id),
+                    type="INM",
+                    title=notification_payload["title"],
+                    message=notification_payload["message"],
+                    severity="HIGH",
+                    metadata={
+                        "event_key": notification_payload["event_key"],
+                        "device_id": payload.device_id,
+                        "greenhouse_id": str(location_id) if location_id else "",
+                        "sensor_reading_id": record_id,
+                        "ec": current_ec,
+                    },
+                )
+    except Exception as notif_err:
+        logger.warning(
+            "Failed to create INM EC notification (non-fatal)",
+            extra={"device_id": payload.device_id, "error": str(notif_err)},
         )
 
     return {
