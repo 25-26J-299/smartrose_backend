@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     MONGO_URI: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "smartrose"
     FM_MODEL_PATH: str = "smartrose_fm/models/fm_model.pkl"
+    FM_REPLACE_WATER_THRESHOLD: float = 40.0  # Trigger water replacement when freshness_score < this
     INM_MODEL_DIR: str = "smartrose-inm/ml/models"  # Path to INM model directory (contains inm_ec_rf_model.pkl, inm_ec_scaler.pkl)
     api_version: str = "v1"
     jwt_secret: str = "changeme"
