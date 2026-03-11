@@ -9,6 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.api.deps import get_current_user
 from app.db.collections import devices as device_repo
 from app.db.collections import locations as location_repo
+from app.db.collections import base_stations as base_station_repo
 from app.db.collections import users as user_repo
 from app.db.mongodb import get_db
 from app.models.user_models import (
@@ -247,4 +248,18 @@ async def get_my_devices(
         "location_id": location_id,
         "device_type": device_type,
         "devices": devices,
+    }
+
+
+@router.get("/my-base-stations", summary="Get the logged-in user's base stations")
+async def get_my_base_stations(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    """Return all base stations owned by the logged-in user (EOSM gateways)."""
+    user_id = str(current_user["_id"])
+    base_stations = await base_station_repo.get_base_stations_by_user(db, user_id)
+    return {
+        "user_id": user_id,
+        "base_stations": base_stations,
     }

@@ -120,11 +120,11 @@ async def get_latest_prediction(
     device_id: Optional[str] = None,
 ) -> Optional[Dict]:
     """Get the latest stress prediction.
-    
+
     Args:
         db: MongoDB database instance
         device_id: Filter by device serial
-    
+
     Returns:
         Latest prediction document or None if not found
     """
@@ -149,6 +149,42 @@ async def get_latest_prediction(
         return None
     except Exception:  # noqa: BLE001
         logger.exception("Failed to get latest EOSM stress prediction")
+        return None
+
+
+async def get_previous_prediction_for_reading(
+    db: AsyncIOMotorDatabase,
+    device_id: str,
+    current_sensor_reading_id: str,
+) -> Optional[Dict]:
+    """Get the latest stress prediction for this device that is NOT for the given reading.
+
+    Use this to detect transition: we want the stress level from before this reading,
+    not the prediction we may have already saved for this same reading on a prior API call.
+
+    Returns:
+        Previous prediction document or None if not found
+    """
+    if not device_id or not current_sensor_reading_id:
+        return None
+    try:
+        query: Dict = {
+            "device_id": device_id,
+            "sensor_reading_id": {"$ne": current_sensor_reading_id},
+        }
+        doc = await (
+            db[COLLECTION_NAME]
+            .find(query)
+            .sort([("timestamp", -1), ("_id", -1)])
+            .limit(1)
+            .to_list(length=1)
+        )
+        if doc and len(doc) > 0:
+            doc[0]["_id"] = str(doc[0].get("_id"))
+            return doc[0]
+        return None
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to get previous EOSM stress prediction for reading")
         return None
 
 # ================= eosm component end =================
