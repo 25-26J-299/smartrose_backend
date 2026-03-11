@@ -5,14 +5,20 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Path, Response
 
+from app.db.collections import devices as device_repo
+from app.db.collections import notifications as notifications_repo
 from app.db.mongodb import get_database
 from app.models.fm_models import FMPredictionResponse, FMSensorInput
 from app.services.fm_service import get_latest, save_reading
 from app.services.fm_ml_service import FMMLError, get_ml_prediction
 from app.db.collections.fm_predictions import COLLECTION_NAME as FM_PREDICTIONS_COLLECTION
+from app.services.notification_service import create_notification
 
 router = APIRouter(prefix="/fm", tags=["FM"])
 logger = logging.getLogger(__name__)
+
+LOW_FRESHNESS_THRESHOLD = 40.0
+SHORT_VASE_LIFE_THRESHOLD_HOURS = 24.0
 
 
 def _ml_response_to_prediction(
@@ -72,6 +78,15 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
             },
         )
 
+        db = get_database()
+        collection = db[FM_PREDICTIONS_COLLECTION]
+        device = await device_repo.get_device_by_serial(db, payload.device_id)
+
+        previous_prediction = await collection.find_one(
+            {"device_id": payload.device_id},
+            sort=[("timestamp", -1), ("_id", -1)],
+        )
+
         # 1) Save raw sensor data
         inserted_id = await save_reading(payload)
 
@@ -98,9 +113,6 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
             ) from exc
 
         # 3) Store prediction result in MongoDB
-        db = get_database()
-        collection = db[FM_PREDICTIONS_COLLECTION]
-
         prediction_doc = {
             "sensor_id": inserted_id,
             "device_id": payload.device_id,
@@ -126,6 +138,127 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
                 "prediction_id": prediction_id,
             },
         )
+
+        try:
+            user_id = (device or {}).get("user_id", "")
+            location_id = (device or {}).get("location_id", "")
+            current_freshness = float(prediction.get("freshness_score") or 0.0)
+            current_vase_life = float(prediction.get("vase_life_hours") or 0.0)
+            current_water_level = int(payload.water_level)
+            current_gas_value = float(payload.gas_value)
+
+            previous_freshness = (
+                float(previous_prediction.get("freshness_score"))
+                if previous_prediction and previous_prediction.get("freshness_score") is not None
+                else None
+            )
+            previous_vase_life = (
+                float(previous_prediction.get("vase_life_hours"))
+                if previous_prediction and previous_prediction.get("vase_life_hours") is not None
+                else None
+            )
+            previous_water_level = (
+                int(previous_prediction.get("water_level"))
+                if previous_prediction and previous_prediction.get("water_level") is not None
+                else None
+            )
+            previous_gas_value = (
+                float(previous_prediction.get("gas_value"))
+                if previous_prediction and previous_prediction.get("gas_value") is not None
+                else None
+            )
+
+            notification_candidates = []
+
+            if current_freshness < LOW_FRESHNESS_THRESHOLD and (
+                previous_freshness is None or previous_freshness >= LOW_FRESHNESS_THRESHOLD
+            ):
+                notification_candidates.append(
+                    {
+                        "event_key": "low_freshness_score",
+                        "title": "Low Freshness Score",
+                        "message": (
+                            f"Freshness score dropped to {current_freshness:.1f}. "
+                            "Flowers need attention to maintain quality."
+                        ),
+                        "severity": "HIGH",
+                    }
+                )
+
+            if current_vase_life < SHORT_VASE_LIFE_THRESHOLD_HOURS and (
+                previous_vase_life is None or previous_vase_life >= SHORT_VASE_LIFE_THRESHOLD_HOURS
+            ):
+                notification_candidates.append(
+                    {
+                        "event_key": "short_vase_life",
+                        "title": "Very Short Vase Life",
+                        "message": (
+                            f"Estimated vase life is only {current_vase_life:.1f} hours. "
+                            "Review storage and freshness conditions immediately."
+                        ),
+                        "severity": "HIGH",
+                    }
+                )
+
+            if current_water_level < 20 and (
+                previous_water_level is None or previous_water_level >= 20
+            ):
+                notification_candidates.append(
+                    {
+                        "event_key": "low_water_level",
+                        "title": "Low Water Level",
+                        "message": "Water level is below 20%. Refill water to protect flower freshness.",
+                        "severity": "WARNING",
+                    }
+                )
+
+            if current_gas_value > 100 and (
+                previous_gas_value is None or previous_gas_value <= 100
+            ):
+                notification_candidates.append(
+                    {
+                        "event_key": "high_gas_value",
+                        "title": "High Gas Value",
+                        "message": "Gas value is above the safe range. Check freshness conditions and airflow.",
+                        "severity": "WARNING",
+                    }
+                )
+
+            for candidate in notification_candidates:
+                if not user_id:
+                    continue
+                already = await notifications_repo.exists_fm_event_for_reading(
+                    db,
+                    str(user_id),
+                    inserted_id,
+                    candidate["event_key"],
+                )
+                if already:
+                    continue
+                await create_notification(
+                    db=db,
+                    user_id=str(user_id),
+                    type="FM",
+                    title=candidate["title"],
+                    message=candidate["message"],
+                    severity=candidate["severity"],
+                    metadata={
+                        "event_key": candidate["event_key"],
+                        "device_id": payload.device_id,
+                        "location_id": str(location_id) if location_id else "",
+                        "sensor_reading_id": inserted_id,
+                        "prediction_id": prediction_id,
+                        "freshness_score": current_freshness,
+                        "vase_life_hours": current_vase_life,
+                        "water_level": current_water_level,
+                        "gas_value": current_gas_value,
+                    },
+                )
+        except Exception as notif_err:
+            logger.warning(
+                "Failed to create FM notification (non-fatal)",
+                extra={"device_id": payload.device_id, "error": str(notif_err)},
+            )
 
         return {
             "message": "saved",
