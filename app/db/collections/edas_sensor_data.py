@@ -6,6 +6,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 EDAS_COLLECTION_NAME = "edas_sensor_data"
+DEVICES_COLLECTION_NAME = "devices"
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -111,6 +112,45 @@ async def create_edas_reading(db: AsyncIOMotorDatabase, payload: dict) -> str:
         Exception: If insertion fails (logged and re-raised)
     """
     try:
+        # =====================================================================
+        # Step 0: Resolve location_id and user_id from device registry
+        # =====================================================================
+        # Look up the device to inherit its greenhouse (location) and owner.
+        # IoT devices only send device_id; the backend enriches the reading.
+        if not payload.get("location_id") or not payload.get("user_id"):
+            device_id_value = payload.get("device_id")
+            device_doc = None
+
+            if device_id_value:
+                # Try lookup by MongoDB ObjectId first, then by serial number
+                if ObjectId.is_valid(device_id_value):
+                    device_doc = await db[DEVICES_COLLECTION_NAME].find_one(
+                        {"_id": ObjectId(device_id_value)}
+                    )
+                if device_doc is None:
+                    device_doc = await db[DEVICES_COLLECTION_NAME].find_one(
+                        {"device_serial_number": device_id_value}
+                    )
+
+            if device_doc:
+                if not payload.get("location_id"):
+                    payload["location_id"] = str(device_doc.get("location_id", ""))
+                if not payload.get("user_id"):
+                    payload["user_id"] = str(device_doc.get("user_id", ""))
+                logger.info(
+                    "Resolved location_id and user_id from device registry",
+                    extra={
+                        "device_id": device_id_value,
+                        "location_id": payload.get("location_id"),
+                        "user_id": payload.get("user_id"),
+                    },
+                )
+            else:
+                logger.warning(
+                    "Device not found in registry; location_id and user_id will be empty",
+                    extra={"device_id": device_id_value},
+                )
+
         # =====================================================================
         # Step 1: Get CURRENT Sri Lankan LOCAL TIME
         # =====================================================================
@@ -391,6 +431,70 @@ async def delete_edas_reading(db: AsyncIOMotorDatabase, reading_id: str) -> bool
         logger.exception(
             "Failed to delete EDAS sensor reading",
             extra={"collection": EDAS_COLLECTION_NAME, "id": reading_id},
+        )
+        raise
+
+
+async def get_edas_readings_by_location(
+    db: AsyncIOMotorDatabase,
+    location_id: str,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Retrieve EDAS sensor readings for a specific greenhouse (location).
+
+    Useful for showing all sensor data from every EDAS device inside one greenhouse.
+    Timestamps returned as UTC (as stored in MongoDB).
+    """
+    try:
+        cursor = (
+            db[EDAS_COLLECTION_NAME]
+            .find({"location_id": location_id})
+            .sort("timestamp", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        readings = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            readings.append(doc)
+        return readings
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to fetch EDAS sensor readings by location",
+            extra={"collection": EDAS_COLLECTION_NAME, "location_id": location_id},
+        )
+        raise
+
+
+async def get_edas_readings_by_user(
+    db: AsyncIOMotorDatabase,
+    user_id: str,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Retrieve EDAS sensor readings for all devices owned by a user.
+
+    Aggregates readings across all of the user's greenhouses and devices.
+    Timestamps returned as UTC (as stored in MongoDB).
+    """
+    try:
+        cursor = (
+            db[EDAS_COLLECTION_NAME]
+            .find({"user_id": user_id})
+            .sort("timestamp", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        readings = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            readings.append(doc)
+        return readings
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to fetch EDAS sensor readings by user",
+            extra={"collection": EDAS_COLLECTION_NAME, "user_id": user_id},
         )
         raise
 

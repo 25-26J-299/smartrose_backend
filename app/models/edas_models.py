@@ -35,6 +35,14 @@ class EDASSensorData(BaseModel):
         le=100,
         description="Relative humidity percentage (0-100%) (SHT31 sensor)",
     )
+    location_id: Optional[str] = Field(
+        None,
+        description="Greenhouse (location) this device belongs to (auto-populated by backend)",
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="Owner user ID (auto-populated by backend from device registry)",
+    )
     temperature_difference: Optional[float] = Field(
         None,
         description="Calculated difference: plant_temperature - air_temperature (auto-calculated)",
@@ -112,6 +120,8 @@ class EDASSensorDataUpdate(BaseModel):
     """
 
     device_id: Optional[str] = None
+    location_id: Optional[str] = None
+    user_id: Optional[str] = None
     plant_temperature: Optional[float] = None
     air_temperature: Optional[float] = None
     humidity: Optional[float] = None
@@ -130,6 +140,8 @@ class EDASSensorDataResponse(BaseModel):
 
     id: Optional[str] = Field(None, alias="_id")
     device_id: str
+    location_id: Optional[str] = None
+    user_id: Optional[str] = None
     plant_temperature: float
     air_temperature: float
     humidity: float

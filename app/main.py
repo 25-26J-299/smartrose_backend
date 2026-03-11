@@ -72,8 +72,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Log request validation errors for visibility."""
     logger.error(
-        "Request validation error",
-        extra={"path": request.url.path, "errors": exc.errors()},
+        "Request validation error at %s — %s",
+        request.url.path,
+        exc.errors(),
     )
     return JSONResponse(
         status_code=422,

@@ -66,6 +66,8 @@ async def init_db() -> None:
         await _ensure_index(db, "fm_sensor_data", [("device_id", 1), ("timestamp", -1)])
         await _ensure_index(db, "inm_sensor_data", [("device_id", 1)])
         await _ensure_index(db, "edas_sensor_data", [("device_id", 1)])
+        await _ensure_index(db, "edas_sensor_data", [("location_id", 1), ("timestamp", -1)])
+        await _ensure_index(db, "edas_sensor_data", [("user_id", 1), ("timestamp", -1)])
         await _ensure_index(db, "base_stations", [("serial", 1)], unique=True)
         await _ensure_index(db, "eosm_s_data", [("device_id", 1), ("user_id", 1)])
         await _ensure_index(db, "notifications", [("user_id", 1), ("created_at", -1)])

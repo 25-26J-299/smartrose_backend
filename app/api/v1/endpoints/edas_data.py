@@ -11,6 +11,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.collections.edas_sensor_data import (
     get_all_edas_readings,
+    get_edas_readings_by_location,
+    get_edas_readings_by_user,
     get_latest_edas_reading,
 )
 from app.db.mongodb import get_db
@@ -32,6 +34,8 @@ async def list_edas_data(
     limit: int = Query(120, ge=1, le=2000, description="Maximum records to return"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     device_id: str | None = Query(None, description="Filter by device ID"),
+    location_id: str | None = Query(None, description="Filter by greenhouse (location) ID"),
+    user_id: str | None = Query(None, description="Filter by owner user ID"),
     db=Depends(get_db),
 ) -> dict:
     """Return EDAS sensor readings with pagination.
@@ -42,7 +46,9 @@ async def list_edas_data(
     Query Parameters:
         - limit: Maximum number of records (default: 120)
         - skip: Pagination offset (default: 0)
-        - device_id: Optional filter by specific device
+        - device_id: Optional filter by specific EDAS device
+        - location_id: Optional filter by greenhouse — returns all devices in that greenhouse
+        - user_id: Optional filter by user — returns all devices across all their greenhouses
         
     Returns:
         Standard response with sensor data items including:
@@ -50,12 +56,21 @@ async def list_edas_data(
         - sensor values (plant_temperature, air_temperature, humidity)
         - calculated fields (temperature_difference)
         - ML time features (hour, is_day, time_period)
+        - location_id and user_id for greenhouse/owner traceability
     """
     try:
         if device_id:
             from app.db.collections.edas_sensor_data import get_edas_readings_by_device
             readings = await get_edas_readings_by_device(
                 db, device_id=device_id, skip=skip, limit=limit
+            )
+        elif location_id:
+            readings = await get_edas_readings_by_location(
+                db, location_id=location_id, skip=skip, limit=limit
+            )
+        elif user_id:
+            readings = await get_edas_readings_by_user(
+                db, user_id=user_id, skip=skip, limit=limit
             )
         else:
             readings = await get_all_edas_readings(db, skip=skip, limit=limit)
