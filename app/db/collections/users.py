@@ -5,8 +5,33 @@ from typing import Optional
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import ReturnDocument
 
 COLLECTION_NAME = "users"
+
+
+def _user_id_filter(user_id: str) -> dict:
+    """Match _id whether stored as BSON ObjectId or legacy string hex (imports / older clients)."""
+    uid = (user_id or "").strip()
+    if ObjectId.is_valid(uid):
+        oid = ObjectId(uid)
+        return {"$or": [{"_id": oid}, {"_id": uid}]}
+    return {"_id": uid}
+
+
+def _user_ids_for_in_clause(user_ids: list[str]) -> list:
+    """Build $in list covering both ObjectId and string forms for each id."""
+    values: list = []
+    seen: set[str] = set()
+    for raw in user_ids:
+        uid = (raw or "").strip()
+        if not uid or uid in seen:
+            continue
+        seen.add(uid)
+        if ObjectId.is_valid(uid):
+            values.append(ObjectId(uid))
+        values.append(uid)
+    return values
 
 
 def _normalize_user(document: Optional[dict]) -> Optional[dict]:
@@ -32,10 +57,10 @@ def _normalize_user(document: Optional[dict]) -> Optional[dict]:
 
 async def get_user_by_id(db: AsyncIOMotorDatabase, user_id: str) -> Optional[dict]:
     """Return a single user by ID, if it exists."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return None
     user = await db[COLLECTION_NAME].find_one(
-        {"_id": ObjectId(user_id)},
+        _user_id_filter(user_id),
         {"password_hash": 0},
     )
     return _normalize_user(user)
@@ -71,14 +96,15 @@ async def update_roles(
     db: AsyncIOMotorDatabase, user_id: str, roles: list[str]
 ) -> Optional[dict]:
     """Update user roles (legacy) and return the updated document."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return None
     role = roles[0] if roles else "farmer"
+    filt = _user_id_filter(user_id)
     await db[COLLECTION_NAME].update_one(
-        {"_id": ObjectId(user_id)},
+        filt,
         {"$set": {"roles": roles, "role": role, "updated_at": datetime.utcnow()}},
     )
-    updated = await db[COLLECTION_NAME].find_one({"_id": ObjectId(user_id)})
+    updated = await db[COLLECTION_NAME].find_one(filt)
     return _normalize_user(updated)
 
 
@@ -86,13 +112,14 @@ async def update_role(
     db: AsyncIOMotorDatabase, user_id: str, role: str
 ) -> Optional[dict]:
     """Update user role and return the updated document."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return None
+    filt = _user_id_filter(user_id)
     await db[COLLECTION_NAME].update_one(
-        {"_id": ObjectId(user_id)},
+        filt,
         {"$set": {"role": role, "updated_at": datetime.utcnow()}},
     )
-    updated = await db[COLLECTION_NAME].find_one({"_id": ObjectId(user_id)})
+    updated = await db[COLLECTION_NAME].find_one(filt)
     return _normalize_user(updated)
 
 
@@ -107,7 +134,7 @@ async def update_user(
     is_active: Optional[bool] = None,
 ) -> Optional[dict]:
     """Update user fields and return the updated document."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return None
     updates: dict = {"updated_at": datetime.utcnow()}
     if full_name is not None:
@@ -123,7 +150,7 @@ async def update_user(
     if is_active is not None:
         updates["is_active"] = is_active
     await db[COLLECTION_NAME].update_one(
-        {"_id": ObjectId(user_id)},
+        _user_id_filter(user_id),
         {"$set": updates},
     )
     return await get_user_by_id(db, user_id)
@@ -133,13 +160,14 @@ async def update_status(
     db: AsyncIOMotorDatabase, user_id: str, status: str
 ) -> Optional[dict]:
     """Update user status and return the updated document."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return None
+    filt = _user_id_filter(user_id)
     await db[COLLECTION_NAME].update_one(
-        {"_id": ObjectId(user_id)},
+        filt,
         {"$set": {"status": status, "updated_at": datetime.utcnow()}},
     )
-    updated = await db[COLLECTION_NAME].find_one({"_id": ObjectId(user_id)})
+    updated = await db[COLLECTION_NAME].find_one(filt)
     return _normalize_user(updated)
 
 
@@ -147,10 +175,10 @@ async def update_last_login(
     db: AsyncIOMotorDatabase, user_id: str
 ) -> None:
     """Update last_login timestamp for the user."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return
     await db[COLLECTION_NAME].update_one(
-        {"_id": ObjectId(user_id)},
+        _user_id_filter(user_id),
         {"$set": {"last_login": datetime.utcnow(), "updated_at": datetime.utcnow()}},
     )
 
@@ -190,11 +218,11 @@ async def get_users_by_ids(
     """Return approved users by IDs."""
     if not user_ids:
         return []
-    ids = [ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)]
-    if not ids:
+    in_values = _user_ids_for_in_clause(user_ids)
+    if not in_values:
         return []
     cursor = db[COLLECTION_NAME].find(
-        {"_id": {"$in": ids}, "status": "approved"},
+        {"_id": {"$in": in_values}, "status": "approved"},
         {"password_hash": 0},
     ).sort("created_at", -1)
     users = []
@@ -229,18 +257,20 @@ async def update_password_hash(
     db: AsyncIOMotorDatabase, user_id: str, password_hash: str
 ) -> bool:
     """Replace the stored bcrypt hash for a user. Returns True if the document was found and updated."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return False
-    result = await db[COLLECTION_NAME].update_one(
-        {"_id": ObjectId(user_id)},
+    updated = await db[COLLECTION_NAME].find_one_and_update(
+        _user_id_filter(user_id),
         {"$set": {"password_hash": password_hash, "updated_at": datetime.utcnow()}},
+        projection={"password_hash": 0},
+        return_document=ReturnDocument.AFTER,
     )
-    return result.matched_count > 0
+    return updated is not None
 
 
 async def delete_user(db: AsyncIOMotorDatabase, user_id: str) -> bool:
     """Delete a user by ID."""
-    if not ObjectId.is_valid(user_id):
+    if not (user_id or "").strip():
         return False
-    result = await db[COLLECTION_NAME].delete_one({"_id": ObjectId(user_id)})
+    result = await db[COLLECTION_NAME].delete_one(_user_id_filter(user_id))
     return result.deleted_count > 0

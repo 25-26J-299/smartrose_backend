@@ -177,6 +177,7 @@ async def update_user(
 
 
 @router.patch("/users/{user_id}/password", summary="Reset user password (admin)")
+@router.post("/users/{user_id}/password", summary="Reset user password (admin, POST alias)")
 async def reset_user_password(
     user_id: str,
     payload: AdminPasswordUpdate,
