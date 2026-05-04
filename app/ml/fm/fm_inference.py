@@ -2,6 +2,7 @@
 
 
 import logging
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -119,6 +120,11 @@ def is_model_available() -> bool:
     return _load_models()
 
 
+def _finite_or(value: float, fallback: float) -> float:
+
+    return value if math.isfinite(value) else fallback
+
+
 def _compute_status(freshness_score: float) -> str:
 
     if freshness_score >= 0.7:
@@ -150,11 +156,22 @@ def predict_freshness(
             "water_level": [water_level],
         })
         
-        # Make predictions
+        # Make predictions (guard NaN/inf — JSON cannot encode them and Starlette will 500)
         freshness_score_raw = float(_freshness_model.predict(features_df)[0])
         vase_life_hours_raw = float(_vase_life_model.predict(features_df)[0])
-        
-        # Round to reasonable precision
+
+        if not math.isfinite(freshness_score_raw) or not math.isfinite(vase_life_hours_raw):
+            logger.warning(
+                "FM model produced non-finite prediction; substituting defaults",
+                extra={
+                    "freshness_score_raw": freshness_score_raw,
+                    "vase_life_hours_raw": vase_life_hours_raw,
+                },
+            )
+
+        freshness_score_raw = _finite_or(freshness_score_raw, 50.0)
+        vase_life_hours_raw = _finite_or(vase_life_hours_raw, 48.0)
+
         freshness_score = round(freshness_score_raw, 4)
         vase_life_hours = round(vase_life_hours_raw, 2)
         

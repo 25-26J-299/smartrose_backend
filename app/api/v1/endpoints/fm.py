@@ -1,6 +1,7 @@
 """FastAPI endpoints for Freshness Monitoring (FM) component."""
 
 import logging
+import math
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Path, Response
@@ -9,7 +10,11 @@ from app.core.config import settings
 from app.db.collections import devices as device_repo
 from app.db.collections import notifications as notifications_repo
 from app.db.mongodb import get_database
-from app.models.fm_models import FMPredictionResponse, FMSensorInput
+from app.models.fm_models import (
+    FMUploadResponse,
+    FMPredictionResponse,
+    FMSensorInput,
+)
 from app.services.fm_service import get_latest, save_reading
 from app.services.fm_ml_service import FMMLError, get_ml_prediction
 from app.db.collections.fm_predictions import COLLECTION_NAME as FM_PREDICTIONS_COLLECTION
@@ -19,6 +24,17 @@ router = APIRouter(prefix="/fm", tags=["FM"])
 logger = logging.getLogger(__name__)
 
 LOW_FRESHNESS_THRESHOLD = 40.0
+
+
+def _finite_float(value: object, default: float = 50.0) -> float:
+
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return default
+    return x if math.isfinite(x) else default
+
+
 SHORT_VASE_LIFE_THRESHOLD_HOURS = 24.0
 
 
@@ -62,8 +78,12 @@ def _ml_response_to_prediction(
     )
 
 
-@router.post("/upload", summary="Upload sensor reading from ESP32")
-async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
+@router.post(
+    "/upload",
+    summary="Upload sensor reading from ESP32",
+    response_model=FMUploadResponse,
+)
+async def upload_sensor_reading(payload: FMSensorInput) -> FMUploadResponse:
 
     try:
         logger.info(
@@ -143,8 +163,8 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
         try:
             user_id = (device or {}).get("user_id", "")
             location_id = (device or {}).get("location_id", "")
-            current_freshness = float(prediction.get("freshness_score") or 0.0)
-            current_vase_life = float(prediction.get("vase_life_hours") or 0.0)
+            current_freshness = _finite_float(prediction.get("freshness_score"), 0.0)
+            current_vase_life = _finite_float(prediction.get("vase_life_hours"), 0.0)
             current_water_level = int(payload.water_level)
             current_gas_value = float(payload.gas_value)
 
@@ -261,7 +281,7 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
                 extra={"device_id": payload.device_id, "error": str(notif_err)},
             )
 
-        freshness_score = float(prediction.get("freshness_score") or 50.0)
+        freshness_score = _finite_float(prediction.get("freshness_score"), 50.0)
         replace_water = freshness_score <= settings.FM_REPLACE_WATER_THRESHOLD
 
         if replace_water:
@@ -270,13 +290,13 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
                 extra={"device_id": payload.device_id, "freshness_score": freshness_score},
             )
 
-        return {
-            "message": "saved",
-            "id": inserted_id,
-            "prediction_id": prediction_id,
-            "freshness_score": freshness_score,
-            "replace_water": replace_water,
-        }
+        return FMUploadResponse(
+            message="saved",
+            id=inserted_id,
+            prediction_id=prediction_id,
+            freshness_score=freshness_score,
+            replace_water=replace_water,
+        )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
