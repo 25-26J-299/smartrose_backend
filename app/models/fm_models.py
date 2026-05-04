@@ -67,3 +67,13 @@ class FMPredictionResponse(BaseModel):
     freshness_score: float
     vase_life_hours: float
     alerts: List[str] = []
+
+
+class FMUploadResponse(BaseModel):
+    """Response body for POST /fm/upload (ESP32 + clients)."""
+
+    message: str = "saved"
+    id: str
+    prediction_id: str
+    freshness_score: float
+    replace_water: bool
