@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     MONGO_URI: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "smartrose"
     FM_MODEL_PATH: str = "smartrose_fm/models/fm_model.pkl"
-    FM_REPLACE_WATER_THRESHOLD: float = 40.0  # Trigger water replacement when freshness_score < this
+    # ESP32 acts when POST /fm/upload returns replace_water=true (drain then refill).
+    # Use 65 for a 0–100 score scale; if your model outputs 0–1, set FM_REPLACE_WATER_THRESHOLD=0.65 via env.
+    FM_REPLACE_WATER_THRESHOLD: float = 65.0  # Trigger when freshness_score <= this (inclusive)
     INM_MODEL_DIR: str = "smartrose-inm/ml/models"  # Path to INM model directory (contains inm_ec_rf_model.pkl, inm_ec_scaler.pkl)
     api_version: str = "v1"
     jwt_secret: str = "changeme"

@@ -262,7 +262,7 @@ async def upload_sensor_reading(payload: FMSensorInput) -> Dict[str, str]:
             )
 
         freshness_score = float(prediction.get("freshness_score") or 50.0)
-        replace_water = freshness_score < settings.FM_REPLACE_WATER_THRESHOLD
+        replace_water = freshness_score <= settings.FM_REPLACE_WATER_THRESHOLD
 
         if replace_water:
             logger.info(
@@ -463,7 +463,7 @@ async def get_latest_with_prediction(
 
         pred_dict = prediction.model_dump(mode='json')
         freshness_score = prediction.freshness_score
-        pred_dict["replace_water"] = freshness_score < settings.FM_REPLACE_WATER_THRESHOLD
+        pred_dict["replace_water"] = freshness_score <= settings.FM_REPLACE_WATER_THRESHOLD
 
         return {
             "reading": reading_dict,
