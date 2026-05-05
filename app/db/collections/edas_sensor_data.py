@@ -276,17 +276,30 @@ async def get_edas_reading_by_id(
 
 
 async def get_latest_edas_reading(
-    db: AsyncIOMotorDatabase, device_id: Optional[str] = None
+    db: AsyncIOMotorDatabase,
+    device_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Retrieve the most recent EDAS sensor reading.
-    
+    """Retrieve the most recent EDAS sensor reading matching optional filters.
+
+    Filters are combined with AND. At least one filter should be supplied for
+    authenticated, tenant-safe queries. An empty filter is treated as
+    \"match nothing\" so callers do not accidentally read all tenants' data.
+
     Timestamp returned as UTC (as stored in MongoDB).
     """
     try:
-        query = {}
+        query: Dict[str, Any] = {}
         if device_id:
             query["device_id"] = device_id
-        
+        if location_id:
+            query["location_id"] = location_id
+        if user_id:
+            query["user_id"] = user_id
+        if not query:
+            return None
+
         doc = await db[EDAS_COLLECTION_NAME].find_one(
             query,
             sort=[("timestamp", -1)]
