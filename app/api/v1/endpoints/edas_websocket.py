@@ -228,22 +228,59 @@ async def websocket_edas_live(websocket: WebSocket):
                             websocket
                         )
                     
-                    # Handle get_latest request
+                    # Handle get_latest request (requires JWT — same scope as REST)
                     elif message.get("type") == "get_latest":
-                        # Import here to avoid circular dependency
+                        from app.db.collections import users as user_repo
                         from app.db.collections.edas_sensor_data import get_latest_edas_reading
                         from app.db.mongodb import get_database
-                        
+                        from app.services.auth_service import decode_jwt
+
+                        token = message.get("token")
+                        if not token:
+                            await edas_ws_manager.send_personal_message(
+                                {
+                                    "type": "error",
+                                    "detail": "get_latest requires a Bearer token in the message",
+                                },
+                                websocket,
+                            )
+                            continue
+
+                        payload = decode_jwt(token)
+                        email = payload.get("email") if payload else None
+                        if not email:
+                            await edas_ws_manager.send_personal_message(
+                                {
+                                    "type": "error",
+                                    "detail": "Invalid or expired token",
+                                },
+                                websocket,
+                            )
+                            continue
+
                         db = get_database()
-                        latest = await get_latest_edas_reading(db)
-                        
+                        user = await user_repo.get_user_by_email(db, email)
+                        if not user:
+                            await edas_ws_manager.send_personal_message(
+                                {
+                                    "type": "error",
+                                    "detail": "User not found",
+                                },
+                                websocket,
+                            )
+                            continue
+
+                        latest = await get_latest_edas_reading(
+                            db, user_id=str(user["_id"])
+                        )
+
                         if latest:
                             await edas_ws_manager.send_personal_message(
                                 {
                                     "type": "sensor_data",
-                                    "data": latest
+                                    "data": latest,
                                 },
-                                websocket
+                                websocket,
                             )
                 
                 except json.JSONDecodeError:
