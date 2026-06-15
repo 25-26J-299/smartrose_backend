@@ -1,192 +1,146 @@
-## SMARTROSE — IoT + ML Decision Support for Greenhouse Rose Cultivation
+# SMARTROSE: IoT and ML Decision Support for Greenhouse Rose Cultivation
 
-SMARTROSE is a multi-component system for **monitoring greenhouse rose cultivation** using **IoT sensor data**, **machine learning**, and a **Flutter mobile app**.
+SMARTROSE is an enterprise-grade, multi-component decision support system designed to monitor and optimize greenhouse rose cultivation. By integrating Internet of Things (IoT) sensor networks with Machine Learning (ML) orchestration and a cross-platform mobile application, the system bridges the gap between raw environmental telemetry and actionable agricultural management.
 
-It includes four modules:
-- **INM** — Intelligent Nutrient Management
-- **EOSM** — Energy-Optimized Stress Monitoring
-- **EDAS** — Early Disease Alerting System
-- **FM** — Freshness Monitoring
+### Organization Directory
+**[View the complete SMARTROSE GitHub Organization](https://github.com/25-26J-299)**
 
-
-### Project Overview
-
-**High-level flow**: sensors → ESP32/LoRa → backend API → MongoDB → ML inference → recommendations/alerts → mobile dashboard.
-
-This workspace contains:
-- **Common/system repos**: `smartrose_backend/` (FastAPI gateway) + `smartrose_frontend/` (Flutter app)
-- **Individual component repos**: `smartrose-inm/`, `smartrose-eosm/`, `smartrose-edas/`, `smartrose-fm/` (training/docs/IoT/artifacts)
+### Research Portfolio
+**[View the SMARTROSE Research Portfolio](https://smartrose-portfolio.vercel.app/)**
+*Comprehensive documentation, research methodology, and academic artifacts.*
 
 ---
 
-### Architecture
+## 1. System Architecture
 
-- **Architecture diagram **:
+The SMARTROSE platform utilizes a distributed micro-architecture, comprising a centralized Application Programming Interface (API) gateway, a presentation layer, and decoupled machine learning service modules.
 
-https://mysliit-my.sharepoint.com/:i:/g/personal/it22326522_my_sliit_lk/IQBiADF5Sib5T6ZpUIdtIAokAeALnCUDy57DtLRrc1P23lo?e=3xmeR7
+**Data Pipeline:**
+`Hardware Sensors` -> `ESP32/LoRa Gateway` -> `FastAPI Backend` -> `MongoDB` -> `ML Inference Engine` -> `Flutter Client`
 
-- **Text-based diagram **:
+**System Diagram:**
+[View Full Architecture Diagram](https://mysliit-my.sharepoint.com/:i:/g/personal/it22326522_my_sliit_lk/IQBiADF5Sib5T6ZpUIdtIAokAeALnCUDy57DtLRrc1P23lo?e=3xmeR7)
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                           Field / Lab Environment                            │
-│  IoT Sensors (NPK, EC, pH, soil temp/moisture, air temp/humidity, etc.)     │
-└───────────────────────────────┬────────────────────────────────────────────┘
-                                │ HTTP/JSON
-                                ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│                     smartrose_backend (FastAPI + MongoDB)                   │
-│                                                                            │
-│  API layer (v1)                                                           │
-│   - INM  : /api/v1/inm/*                                                  │
-│   - EOSM : /api/v1/eosm/*               │
-│   - EDAS : /api/v1/edas/*                    │
-│   - FM   : /api/v1/fm/*                                                   │
-│                                                                            │
-│  ML inference layer (per module; depends on local model artifacts)          │
-│   - INM  : app/ml/inm/inm_inference.py                                      │
-│   - EOSM : app/ml/eosm/eosm_inference.py                                    │
-│   - FM   : app/ml/fm/fm_inference.py                                        │
-│   - EDAS : app/services/edas_ml_service.py                                  │
-│                                                                            │
-│  Persistence: MongoDB collections (sensor readings, predictions, actions)   │
-└────────────────────────────────────────────────────────────────────────────┘
-                                │ JSON over HTTP
-                                ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│                  smartrose_frontend (Flutter mobile app)                   │
-│  - dashboard + module screens + charts                                     │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-### Repository Structure
-
-This workspace contains **two common (system-level) repos** and multiple **individual component repos**.
-
-- **Common / system repos**
-  - **`smartrose_backend/`**: unified **FastAPI + MongoDB** backend gateway.
-    - **Entry point**: `smartrose_backend/app/main.py`
-    - **API routing**: `smartrose_backend/app/api/v1/router.py`
-    - **Local config template**: `smartrose_backend/env.example` (copy to `smartrose_backend/.env` locally)
-
-  - **`smartrose_frontend/`**: Flutter mobile app (UI + API client).
-    - **Entry point**: `smartrose_frontend/lib/main.dart`
-
-- **Individual component repos (training / docs / experiments / artifacts)**
-  - **`smartrose-inm/`**: INM (IoT + ML training + artifacts + docs)
-  - **`smartrose-eosm/`**: EOSM (training + artifacts + docs; also contains a standalone service)
-  - **`smartrose-edas/`**: EDAS (training + docs; integration can be expanded in the gateway)
-  - **`smartrose-fm/`**: FM (training + artifacts + docs)
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │                           Field / Lab Environment                          │
+    │  IoT Sensors (NPK, EC, pH, soil temp/moisture, air temp/humidity, etc.)    │
+    └───────────────────────────────┬────────────────────────────────────────────┘
+                                    │ HTTP/JSON Payload
+                                    ▼
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │                     smartrose_backend (FastAPI + MongoDB)                  │
+    │                                                                            │
+    │  API Routing Layer (v1)                                                    │
+    │   - INM  : /api/v1/inm/* │
+    │   - EOSM : /api/v1/eosm/* │
+    │   - EDAS : /api/v1/edas/* │
+    │   - FM   : /api/v1/fm/* │
+    │                                                                            │
+    │  ML Inference Service Layer                                                │
+    │   - INM  : app/ml/inm/inm_inference.py                                     │
+    │   - EOSM : app/ml/eosm/eosm_inference.py                                   │
+    │   - FM   : app/ml/fm/fm_inference.py                                       │
+    │   - EDAS : app/services/edas_ml_service.py                                 │
+    │                                                                            │
+    │  Persistence Layer: MongoDB Collections (telemetry, predictions, history)  │
+    └────────────────────────────────────────────────────────────────────────────┘
+                                    │ RESTful JSON / WebSockets
+                                    ▼
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │                  smartrose_frontend (Flutter Client)                       │
+    │  - Data visualization, module management, and actionable alerts            │
+    └────────────────────────────────────────────────────────────────────────────┘
 
 ---
 
-### Component Details (INM / EOSM / EDAS / FM)
+## 2. Repository Structure
 
-Below is an evaluator-friendly summary of each component: **goal**, **inputs**, **outputs**, and where the **runtime implementation** lives.
+The workspace is organized into two system-level repositories and four independent subsystem repositories.
 
-#### INM — Intelligent Nutrient Management
+### System Repositories
+| Component | Repository Link | Description |
+| :--- | :--- | :--- |
+| **Backend Gateway** | [`smartrose_backend`](https://github.com/25-26J-299/smartrose_backend.git) | Unified FastAPI + MongoDB backend gateway. Entry point: `app/main.py`. |
+| **Mobile Client** | [`smartrose_frontend`](https://github.com/25-26J-299/smartrose_frontend.git) | Flutter-based presentation layer and API client. Entry point: `lib/main.dart`. |
 
-- **Goal**: provide nutrient management support using live sensor values and an EC(24h) forecast model.
-- **Main inputs** (per reading): N, P, K, EC, pH, soil_temp, soil_moisture, air_temp, air_hum.
-- **Outputs**:
-  - `predicted_ec_24h` (ML; **requires artifacts**)
-  - `ec_status`, `ec_action`, `ph_action`, `npk_recommendation` (rule-based recommendations)
-  - action history (applied/ignored)
-- **Gateway endpoints**: `GET /api/v1/inm/status`, `POST /api/v1/inm/sensor-data`, `POST /api/v1/inm/action`, `GET /api/v1/inm/action-history`, `GET/POST /api/v1/inm/growth-stage`
-- **Backend implementation (gateway)**:
-  - `smartrose_backend/app/api/v1/endpoints/inm.py`
-  - `smartrose_backend/app/services/inm_service.py`
-  - `smartrose_backend/app/ml/inm/inm_inference.py`
-- **Artifacts**: `inm_ec_rf_model.pkl`, `inm_ec_scaler.pkl` loaded via `INM_MODEL_DIR`
-- **Training/docs repo**: `smartrose-inm/` (`iot/`, `ml/`, `docs/`)
-
-#### EOSM — Energy-Optimized Stress Monitoring
-
-- **Goal**: classify plant stress from environmental/IoT readings and persist predictions.
-- **Typical inputs** (per reading): temperature, humidity, UV voltage, soil voltage, MQ voltage.
-- **Outputs**: `stress_label` + `stress_probabilities` (ML) + stored prediction history.
-- **Backend implementation (gateway)**:
-  - Orchestration: `smartrose_backend/app/services/eosm_ml_service.py`
-  - IoT ingest integration: `smartrose_backend/app/services/eosm_iot_service.py`
-  - ML inference: `smartrose_backend/app/ml/eosm/eosm_inference.py`
-  - DB: `smartrose_backend/app/db/collections/eosm_*`
-- **Artifacts (required)**: `stress_model_rf.pkl`, `stress_scaler.pkl`, `stress_label_encoder.pkl`
-- **Training/docs repo**: `smartrose-eosm/` (`ml/`, `README.md`)
-
-#### EDAS — Early Disease Alerting System
-
-- **Goal**: predict disease risk early using sensor-driven conditions (temperature/humidity patterns).
-- **Typical inputs**: plant_temperature, air_temperature, humidity (+ time features).
-- **Outputs**: disease risk level + confidence + alerts + recommendations.
-- **Backend implementation (gateway)**:
-  - REST: `smartrose_backend/app/api/v1/endpoints/edas_data.py`
-    - `POST /api/v1/edas-data/` (ingest)
-    - `GET /api/v1/edas-data/latest-with-prediction` (dashboard card)
-  - WebSocket live updates: `smartrose_backend/app/api/v1/endpoints/edas_websocket.py`
-    - `ws://localhost:8000/api/v1/edas-data/ws/edas/live`
-  - Services: `smartrose_backend/app/services/edas_service.py`, `smartrose_backend/app/services/edas_ml_service.py`
-- **Training/docs repo**: `smartrose-edas/` (`docs/`, `ml/`)
-
-#### FM — Freshness Monitoring
-
-- **Goal**: predict freshness / vase life from sensor inputs and produce alerts.
-- **Inputs** (per reading): air_temperature, water_temperature, humidity, gas_value, water_level.
-- **Outputs**: freshness score, vase life estimate, alerts.
-- **Backend implementation (gateway)**:
-  - Endpoints: `smartrose_backend/app/api/v1/endpoints/fm.py`
-  - Local inference wrapper: `smartrose_backend/app/services/fm_ml_service.py`
-  - Model inference: `smartrose_backend/app/ml/fm/fm_inference.py`
-  - (Legacy) fallback service: `smartrose_backend/app/services/fm_service.py` (uses `FM_MODEL_PATH`)
-- **Artifacts**: `freshness_model.pkl`, `vase_life_model.pkl` (via `FM_MODEL_DIR` or auto-detected from `smartrose-fm/ml/models/`)
-- **Training/docs repo**: `smartrose-fm/` (`ml/`, `docs/`)
+### Subsystem Repositories (ML Artifacts, Training Data, Documentation)
+| Module | Repository Link | Focus Area |
+| :--- | :--- | :--- |
+| **INM** | [`smartrose-inm`](https://github.com/25-26J-299/smartrose-inm.git) | Intelligent Nutrient Management |
+| **EOSM** | [`smartrose-eosm`](https://github.com/25-26J-299/smartrose-eosm.git) | Energy-Optimized Stress Monitoring |
+| **EDAS** | [`smartrose-edas`](https://github.com/25-26J-299/smartrose-edas.git) | Early Disease Alerting System |
+| **FM** | [`smartrose-fm`](https://github.com/25-26J-299/smartrose-fm.git) | Freshness Monitoring |
 
 ---
 
-### Technologies / Dependencies
+## 3. Subsystem Specifications
 
-- **Backend** (`smartrose_backend/requirements.txt`)
-  - FastAPI, Uvicorn, Motor (MongoDB), Pydantic, joblib, scikit-learn, numpy, pandas, python-jose, passlib[bcrypt], httpx
-- **Frontend** (`smartrose_frontend/pubspec.yaml`)
-  - Flutter (Dart), http/dio, provider, flutter_secure_storage, intl, syncfusion_flutter_charts, geolocator
+### Intelligent Nutrient Management (INM)
+* **Objective:** Automate nutrient management utilizing real-time sensor data and a 24-hour Electrical Conductivity (EC) forecasting model.
+* **Telemetry Inputs:** N, P, K, EC, pH, soil temperature, soil moisture, air temperature, air humidity.
+* **System Outputs:** 24h EC ML prediction, rule-based recommendations (EC status, pH action, NPK recommendations), and action logging.
+* **Backend Integration:**
+    * Routes: `GET /api/v1/inm/status`, `POST /api/v1/inm/sensor-data`, `POST /api/v1/inm/action`
+    * Inference Pipeline: `app/ml/inm/inm_inference.py`
+
+### Energy-Optimized Stress Monitoring (EOSM)
+* **Objective:** Classify plant stress states dynamically using environmental telemetry and persist historical inference data.
+* **Telemetry Inputs:** Temperature, humidity, UV voltage, soil moisture voltage, MQ gas voltage.
+* **System Outputs:** Categorical stress label and statistical probabilities.
+* **Backend Integration:**
+    * Orchestration: `app/services/eosm_ml_service.py`
+    * Inference Pipeline: `app/ml/eosm/eosm_inference.py`
+
+### Early Disease Alerting System (EDAS)
+* **Objective:** Execute early detection of disease risks based on localized environmental thresholds and temporal patterns.
+* **Telemetry Inputs:** Plant temperature, ambient air temperature, relative humidity, timestamp variables.
+* **System Outputs:** Disease risk severity level, statistical confidence, and management recommendations.
+* **Backend Integration:**
+    * REST Ingestion: `POST /api/v1/edas-data/`
+    * WebSocket Updates: `ws://localhost:8000/api/v1/edas-data/ws/edas/live`
+    * Services: `app/services/edas_service.py`
+
+### Freshness Monitoring (FM)
+* **Objective:** Estimate post-harvest vase life and current freshness degradation using environmental variables.
+* **Telemetry Inputs:** Air temperature, water temperature, humidity, volatile gas concentration, water level.
+* **System Outputs:** Freshness index score, vase life estimation (days), and environmental alerts.
+* **Backend Integration:**
+    * Routes: `app/api/v1/endpoints/fm.py`
+    * Inference Pipeline: `app/ml/fm/fm_inference.py`
 
 ---
 
-### How to Run Locally
+## 4. Technology Stack
 
-#### Backend (FastAPI gateway)
+**Backend Infrastructure (`smartrose_backend`)**
+* **Framework:** Python 3, FastAPI, Uvicorn (ASGI)
+* **Database:** MongoDB (Motor asynchronous I/O driver)
+* **Data Science:** `scikit-learn`, `pandas`, `numpy`, `joblib`
+* **Security & Validation:** Pydantic, Python-JOSE (JWT authentication), Passlib (Bcrypt)
 
-From `smartrose_backend/`:
+**Frontend Infrastructure (`smartrose_frontend`)**
+* **Framework:** Flutter (Dart)
+* **Networking & State:** `dio`, `http`, `provider`
+* **Visualization:** `syncfusion_flutter_charts`
+* **Security:** `flutter_secure_storage`
+
+---
+
+## 5. Local Development Initialization
+
+### Backend Setup
+Execute the following from the root directory of `smartrose_backend`:
 
 ```bash
+# Clone the repository
+git clone [https://github.com/25-26J-299/smartrose_backend.git](https://github.com/25-26J-299/smartrose_backend.git)
+cd smartrose_backend
+
+# Configure environment variables
+cp env.example .env
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Initialize the ASGI server
 uvicorn app.main:app --reload
-```
-
-- **Health check**: `GET /health`
-
-#### Frontend (Flutter)
-
-From `smartrose_frontend/`:
-
-```bash
-flutter pub get
-flutter run
-
-```
-
----
-
-
-## GitHub organization link: https://github.com/25-26J-299
-
-## common repos 
-  - smartrose_backend GitHub repo link: https://github.com/25-26J-299/smartrose_backend.git
-  - smartrose_frontend GitHub repo link: https://github.com/25-26J-299/smartrose_frontend.git
-
-## Individual component repos 
-  - smartrose-inm : https://github.com/25-26J-299/smartrose-inm.git
-  - smartrose-eosm : https://github.com/25-26J-299/smartrose-eosm.git
-  - smartrose-edas : https://github.com/25-26J-299/smartrose-edas.git
-  - smartrose-fm : https://github.com/25-26J-299/smartrose-fm.git
